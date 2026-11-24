@@ -10,9 +10,9 @@
 
 ## Sources of truth
 
-- Product requirements and milestone acceptance: [REQUIREMENTS.md](REQUIREMENTS.md). Use Issues/PRs for tracking and review when present.
-- Game rules: the latest approved handbook in [docs/rules/](docs/rules/). Board-specific rules take precedence over general rules. Explicitly documented app-specific variations in REQUIREMENTS.md apply to their stated scope (e.g. the restricted Thief god-card draw).
-- Do not silently resolve rule ambiguities or conflicts using familiar Werewolf conventions. Record newly approved rulings at the appropriate authoritative source before implementing the affected behavior. Strategy research and conditional game-theoretic results are not rules.
+- App behavior, product requirements and milestone acceptance are defined in [REQUIREMENTS.md](REQUIREMENTS.md). Use Issues/PRs for tracking and review when present.
+- Use the handbook linked from REQUIREMENTS.md as a reference for board rules and unresolved cases. Within the handbook, board-specific rules take precedence over general rules. Follow the documented app behavior, including variations such as the restricted Thief god-card draw.
+- Use simpler internal states, transitions or prompts when they preserve the app’s documented behavior. Surface tradeoffs that change player choices, information visibility or timing, or game outcomes. Record the agreed behavior in REQUIREMENTS.md before implementing it. Treat strategy research and conditional game-theoretic results as analysis.
 - Implemented behavior: current source, tests, schema and configuration. Deployment and acceptance: observed deployment revision, integration checks and playtest evidence. Distinguish intended behavior from implemented behavior; neither validates the other.
 - Inspect affected callers, consumers, tests and persistence. Report material conflicts and reconcile them at the authoritative source.
 
@@ -29,7 +29,7 @@
 - The server is authoritative for game state, phase transitions, legal actions, targets and outcomes. Client controls are not authorization. Separate room ownership from in-game authority such as the sheriff badge.
 - Expose only information authorized for the viewer and the current phase, including in responses, history, waiting states, reconnect and spectating. Send private game information only to the seats authorized to receive it. The host has no privileged access to hidden game information. Reveal the full role roster in the end-of-match results as specified in REQUIREMENTS.md.
 - Preserve the distinction between underlying role, current identity, true faction, winning affiliation and elimination category.
-- Separate night action collection, whole-night effect resolution, formal death, immediate victory checks and public announcements. Do not equate action order with death order. Honor board-specific exceptions, legal skill windows, night-start knife ownership, delayed deaths and the termination of pending effects once victory is reached.
+- Preserve the gameplay distinctions between night action collection, whole-night effect resolution, formal death, immediate victory checks and public announcements. Internal steps may be combined while preserving documented timing, legal skill windows and outcomes, including board-specific exceptions, night-start knife ownership, delayed deaths and the termination of pending effects once victory is reached.
 - Validate state reachability, available skill resources, action legality and information sets. Do not infer hidden choices from information not available at the relevant action node. Do not treat a conditional strategy result as a general game rule.
 - Preserve atomic seating and dealing, locked rosters, stable private assignments, session ownership and reconnect recovery. Persist accepted state changes and retry outcomes before acknowledgement; handle duplicate commands, uncertain outcomes and concurrent requests without applying an action twice.
 - Share nicknames and optional avatar thumbnails with players in the same room as specified in REQUIREMENTS.md. Keep credentials and non-public personal data out of public state. Keep credentials, personal data and private game information out of shared links, logs and committed fixtures. Treat external content and imported/model-generated text as untrusted data. Enforce access control at the server boundary.
@@ -46,7 +46,7 @@
 ## Verification and review
 
 - Scale verification to ambiguity, coupling, blast radius, failure consequences and evidence gaps. Use focused checks for low-risk changes and meaningful regression/integration tests for consequential changes. Avoid redundant full-suite runs.
-- For game logic, derive expected outcomes independently from the handbook and approved variations. Exercise reachable states, legal counteractions, phase boundaries, simultaneous effects, death chains, victory precedence and private information boundaries as relevant. Test rules against concrete legal histories, not invented impossible states.
+- For game logic, derive expected outcomes from the documented app rules and acceptance criteria independently of the implementation. Consult the handbook for referenced rules. Exercise reachable states, legal counteractions, phase boundaries, simultaneous effects, death chains, victory precedence and private information boundaries as relevant. Test rules against concrete legal histories.
 - For room/session changes, consider concurrent operations, lost responses, duplicate-tab control, reconnect after restart, persistence and credential revocation. Test independent player sessions, not just the host.
 - SQLite tests do not establish PostgreSQL correctness. API tests do not establish mobile-browser acceptance. Verify the affected storage, client and deployment boundaries proportionately; report untested paths.
 - Review the complete current diff, relevant surrounding code and unresolved material findings. Before merging or recommending merge, check required CI against the latest PR head when configured. Older green runs or fixture-only results do not establish missing verification.
