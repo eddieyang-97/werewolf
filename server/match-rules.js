@@ -1,4 +1,5 @@
 import { isPackWolf, playerAt } from './match-state.js';
+import { nightTarget } from './night-resolution.js';
 import { nightSchedules } from '../public/boards.js';
 
 function witchChoices(match, player) {
@@ -15,7 +16,7 @@ export const matchRules = {
   nightChoices(match, player, kind) {
     const { alive } = match.night;
     switch (kind) {
-      case 'knife': return [null, ...alive.filter(seat => playerAt(match, seat).role !== 'wolfKing')];
+      case 'knife': return [null, ...alive.filter(seat => !['wolfKing', 'wolfBeauty'].includes(playerAt(match, seat).role))];
       case 'mixed':
       case 'seer': return alive.filter(seat => seat !== player.seat);
       case 'witch': return witchChoices(match, player);
@@ -29,10 +30,12 @@ export const matchRules = {
         night.knife = choice;
         break;
       case 'mixed':
-        player.model = choice;
+        player.model = nightTarget(night, choice);
+        if (player.model !== choice) player.modelChoice = choice;
         break;
       case 'seer':
-        player.privateEvents.push({ kind, round: match.round, seat: choice, team: isPackWolf(playerAt(match, choice)) ? 'wolves' : 'village' });
+        player.privateEvents.push({ kind, round: match.round, seat: choice,
+          team: isPackWolf(playerAt(match, nightTarget(night, choice))) ? 'wolves' : 'village' });
         break;
       case 'witch':
         if (choice === 'save') {

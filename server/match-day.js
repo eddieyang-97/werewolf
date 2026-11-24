@@ -1,15 +1,18 @@
 import {
-  addHistory, changePhase, formalDeaths, gunAvailable, isPackWolf, livingPlayers, playerAt,
+  addHistory, changePhase, formalDeaths, gunAvailable, isPackWolf, isWolf, livingPlayers, playerAt,
   randomSeatOrder, revealDeaths, seatOrder,
 } from './match-state.js';
 import { electionDue, electionOpen, interruptElection } from './match-election.js';
 import { exileWeight, runoffOrder, tallyVotes } from './match-vote.js';
+import { nightTarget } from './night-resolution.js';
 
 function prependDeathSteps(match, deaths) {
   const steps = deaths.flatMap(death => {
-    const lastWords = death.time === 'shot' || death.cause === 'exile'
+    const lastWords = death.time === 'shot' || ['exile', 'duel-failed'].includes(death.cause)
       || (death.time === 'night' && death.round === 1);
-    return [...(lastWords ? [{ kind: 'last-words', death }] : []), { kind: 'gun', death }, { kind: 'badge', death }];
+    const charm = death.time !== 'night' && death.cause !== 'duel' && match.night?.charm?.source === death.seat;
+    return [...(lastWords ? [{ kind: 'last-words', death }] : []), ...(charm ? [{ kind: 'charm', death }] : []),
+      { kind: 'gun', death }, { kind: 'badge', death }];
   });
   match.deathFlow.steps.unshift(...steps);
 }
@@ -19,6 +22,17 @@ export function advanceDeathFlow(match) {
   const flow = match.deathFlow;
   while (flow.steps.length) {
     const step = flow.steps.shift();
+    if (step.kind === 'charm') {
+      const seat = nightTarget(match.night, match.night.charm.target);
+      const deaths = formalDeaths(match, [{ seat, cause: 'charm', time: 'day' }]);
+      if (deaths.length) {
+        revealDeaths(match, deaths);
+        addHistory(match, 'day', 'charmed', { seat });
+      }
+      if (match.winner) return;
+      prependDeathSteps(match, deaths);
+      continue;
+    }
     if (step.kind === 'gun' && !gunAvailable(match, playerAt(match, step.death.seat), step.death)) continue;
     if (step.kind === 'badge' && match.sheriff !== step.death.seat) continue;
     flow.current = step;
@@ -28,14 +42,45 @@ export function advanceDeathFlow(match) {
   delete match.deathFlow;
   if (flow.then === 'discussion') beginDiscussion(match);
   else if (flow.then === 'speech') nextDiscussionSpeaker(match);
-  else changePhase(match, 'next-night');
+  else if (flow.resumePhase === 'discussion' && playerAt(match, match.day.order[match.day.speakerIndex]).death) {
+    nextDiscussionSpeaker(match);
+  } else if (flow.resumePhase) {
+    changePhase(match, flow.resumePhase === 'nomination' && match.sheriff === null ? 'exile-open' : flow.resumePhase);
+  } else changePhase(match, 'next-night');
 }
 
-function processDeaths(match, deaths, then) {
+function processDeaths(match, deaths, then, resumePhase) {
   if (match.winner) return;
-  match.deathFlow = { steps: [], then };
+  match.deathFlow = { steps: [], then, resumePhase };
   prependDeathSteps(match, deaths);
   advanceDeathFlow(match);
+}
+
+export function duelTargets(match, player) {
+  if (player.role !== 'knight' || player.death || player.used.duel
+    || !['discussion', 'exile-open', 'nomination', 'exile-locked'].includes(match.phase)) return [];
+  return livingPlayers(match).filter(other => other !== player).map(other => other.seat);
+}
+
+export function resolveDuel(match, knight, target) {
+  const won = isWolf(playerAt(match, target));
+  const phase = match.phase;
+  knight.used.duel = true;
+  const seat = won ? target : knight.seat;
+  const deaths = formalDeaths(match, [{ seat, cause: won ? 'duel' : 'duel-failed', time: 'day' }]);
+  revealDeaths(match, deaths);
+  addHistory(match, 'day', 'duel', { seat: knight.seat, target, won });
+  if (match.winner) return;
+  if (won) {
+    const pending = concludeDelayedDeaths(match, livingPlayers(match).filter(player => player.delayedDeath));
+    for (const delayed of pending) addHistory(match, 'day', 'departed', { seat: delayed.seat });
+    processDeaths(match, [...deaths, ...pending], 'night');
+  } else {
+    if (match.day.nominations) {
+      match.day.nominations = match.day.nominations.filter(nomination => nomination !== knight.seat);
+    }
+    processDeaths(match, deaths, 'night', phase);
+  }
 }
 
 export function resolveGun(match, target) {
@@ -172,7 +217,7 @@ export function closeExileVote(match) {
 }
 
 export function canSelfDestruct(match, player) {
-  if ((!isPackWolf(player) && player.role !== 'mechanical') || match.winner) return false;
+  if ((!isPackWolf(player) && player.role !== 'mechanical') || player.role === 'wolfBeauty' || match.winner) return false;
   const beforeBadge = electionOpen(match) || (match.phase === 'dawn' && electionDue(match));
   if (player.death && !(beforeBadge && player.death.round === match.round && player.death.cause === 'poison')) return false;
   return beforeBadge || ['dawn', 'speech-direction', 'discussion', 'exile-open'].includes(match.phase)

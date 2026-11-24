@@ -165,6 +165,8 @@ img.seat-avatar { background: #f3f3f3; object-fit: cover; }
 .history-stage .button { min-height: 33px; font-size: .78rem; padding: 4px 8px; }
 .match-option { display: flex; align-items: center; gap: 7px; min-height: 40px; color: var(--text); }
 .match-option input { width: 20px; min-height: 20px; padding: 0; accent-color: var(--green-text); }
+.choice-error { color: #a12b23; }
+.choice-error:empty { display: none; }
 
 dialog { width: min(82%, 480px); max-height: 88dvh; color: var(--text); background: var(--page); border: 1px solid var(--line); border-radius: 12px; padding: 17px; }
 dialog::backdrop { background: #0008; }
@@ -173,8 +175,9 @@ dialog::backdrop { background: #0008; }
 .dialog-actions { display: flex; gap: 8px; margin-top: 16px; }
 .dialog-actions .button { flex: 1 1 0; }
 dialog label + input { margin-top: 6px; }
-.identity-dialog { padding: 26px 0 0; }
-.identity-dialog .dialog-title { min-height: 31px; margin-bottom: 12px; }
+.identity-dialog { width: min(88%, 440px); padding: 0; border-radius: 20px; }
+.identity-dialog[open] { display: flex; flex-direction: column; overflow: hidden; }
+.identity-dialog .dialog-title { flex: none; min-height: 54px; margin: 0; padding: 10px 20px; text-align: center; }
 .settings-dialog { position: fixed; inset: auto 0 0; width: min(100%, 590px); max-width: 100%; margin: 0 auto; padding: 18px 20px max(24px, env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
 .settings-options { min-width: 0; margin: 0; padding: 0; border: 0; }
 .settings-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding-inline: 10px; color: var(--text); font-size: .96rem; cursor: pointer; }
@@ -188,15 +191,21 @@ dialog label + input { margin-top: 6px; }
 .ballot-detail h3 { font-size: 1rem; }
 .ballot-detail ul { display: grid; gap: 5px; list-style: none; padding: 0; margin: 7px 0 3px; font-size: .8rem; }
 .ballot-detail span { display: inline-block; border-radius: 12px; padding: 2px 6px; color: white; background: #767676; }
-.identity { text-align: center; }
-.identity-detail { padding: 2px 24px 23px; }
-.identity .mark { width: clamp(116px, 38vw, 225px); margin: 0 auto 7px; border-radius: 5px; }
-.identity h3 { margin-bottom: 6px; color: var(--muted); font-size: 1.05rem; }
-.identity p { color: var(--muted); font-size: .84rem; }
+.identity { display: flex; flex-direction: column; min-height: 0; text-align: center; }
+.identity-detail { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 4px 20px 20px; }
+.identity-detail:focus-visible { outline: 2px solid var(--green-text); outline-offset: -3px; }
+.identity .mark { width: clamp(116px, 43vw, 224px); margin: 0 auto 12px; border-radius: 10px; }
+.identity h3 { margin-bottom: 8px; font-size: 1.2rem; }
+.identity p { color: var(--muted); font-size: .94rem; }
+.role-notes { margin: 12px 0 0; padding-inline-start: 1.35em; color: var(--muted); font-size: .84rem; line-height: 1.5; text-align: start; }
+.role-notes li + li { margin-top: 6px; }
+.identity .role-notes { padding: 10px 12px 10px 30px; border-radius: 9px; background: #f2f7f0; }
+.identity .role-notes li::marker { color: var(--green-text); }
 .identity h4 { margin: 10px 0 0; font-weight: 500; }
 .extra-cards { display: flex; justify-content: center; gap: 18px; margin: 8px 0 0; }
 .identity .extra-cards .mark { width: 43px; margin-bottom: 0; border-radius: 3px; }
 .identity-accept { width: 100%; min-height: 53px; border-radius: 0; border-top: 1px solid var(--line); background: var(--page); color: #52628c; }
+.identity .identity-accept { flex: none; color: var(--green-text); }
 .guest-list { display: grid; gap: 6px; list-style: none; padding: 0; }
 .guest-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; overflow-wrap: anywhere; }
 .help-steps { padding-left: 24px; line-height: 1.65; }

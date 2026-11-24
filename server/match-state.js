@@ -26,7 +26,7 @@ export function playerAt(match, seat) {
 }
 
 export function isPackWolf(player) {
-  return player.role === 'wolf' || player.role === 'wolfKing';
+  return ['wolf', 'wolfKing', 'wolfBeauty'].includes(player.role);
 }
 
 export function isWolf(player) {
@@ -119,7 +119,7 @@ export function roster(match) {
 }
 
 export function gunAvailable(match, player, death) {
-  if (player.role === 'wolfKing') return death.cause === 'exile' && death.time === 'day';
+  if (player.role === 'wolfKing') return death.time === 'day' && ['exile', 'duel'].includes(death.cause);
   if (death.time === 'shot' || !['exile', 'wolfKnife', 'milk'].includes(death.cause)) return false;
   if (player.role === 'mechanical') {
     return player.copy?.role === 'hunter' && (death.time !== 'night' || player.copy.round < match.round);
