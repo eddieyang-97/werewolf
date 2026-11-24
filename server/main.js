@@ -1,6 +1,7 @@
 import { openStore } from './store.js';
 import { openPostgresStore } from './postgres-store.js';
 import { createApp } from './http.js';
+import { matchRules } from './match-rules.js';
 
 const { PORT = '3000', DATABASE_URL, ROOM_DB_PATH, RENDER, RENDER_GIT_COMMIT } = process.env;
 if (RENDER === 'true' && !DATABASE_URL && !ROOM_DB_PATH) {
@@ -15,7 +16,7 @@ const sweep = setInterval(async () => {
     console.error('Room expiry sweep failed:', error.code ?? error.name);
   }
 }, 60_000);
-const app = createApp(store, { revision: RENDER_GIT_COMMIT });
+const app = createApp(store, { revision: RENDER_GIT_COMMIT, matchRules });
 app.listen(Number(PORT), '0.0.0.0', () => console.log(`Werewolf listening on port ${PORT}`));
 
 function stop() {

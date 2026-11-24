@@ -73,7 +73,7 @@ The host can start Night 1 once all players have acknowledged their roles and ar
 
 - **Phase and seat status.** Keep the current phase, speaker, public announcements, and available action above the numbered seats. Add the sheriff badge and public elimination state. Confirm consequential player and host actions.
 - **Player actions.** Show two explicit choices for sheriff candidacy (上警 / 不上警). Offer withdrawal and voting only to eligible seats in the relevant window. Allow players to open and dismiss their own action details. Show 自爆 only to a wolf with a legal self-destruct action, and confirm it on that player's phone.
-- **Public match history (对局详情).** Group published events by night and day. Show no-elimination nights, announced exits, public reasons such as exile or self-destruct, and sheriff and voting outcomes at their publication points. Keep private causes, targets, inspections, and unreleased votes out of the public history. Closing it returns to the current phase.
+- **Public match history (对局详情).** Group published events by night and day. Show no-elimination nights, announced exits, public reasons such as exile or self-destruct, and sheriff and voting outcomes at their publication points. Add 警长票型 and 查看票型 for completed ballots, with separate results for a runoff. The detail sheet groups voters by the target seat, shows the weighted totals, and lists abstentions. Keep private causes, targets, inspections, and unreleased votes out of the public history. Closing the ballot sheet returns to history. Closing history returns to the current phase.
 - **Results and rematch.** At game end, show the winner and the full role roster. Let the host return the group to the same room and seats for a fresh deal.
 - **Help and role reference (用法简介).** Explain the room flow, the current board's phase order, its roles, and common reconnect questions. Make the board's roles browsable by category and searchable by Chinese name. Show public ability descriptions independently of a player's assigned role.
 
@@ -114,7 +114,7 @@ The following requirements cover the three supported presets. Preserve their pla
 #### 预女猎白混 (§6.1)
 
 - Use the M1 roster. 混血儿 is a 民 for side elimination regardless of winning affiliation; choose a model on N1 and follow that model's winning affiliation. Track base role, winning affiliation and elimination category separately.
-- 白痴／白神 counts as formally removed from the 神 side when exiled; wolves do not need a further knife to eliminate that 神 slot. Any remaining participation rights need a ruling before implementation.
+- 白痴／白神 counts as formally removed from the 神 side when exiled; wolves do not need a further knife to eliminate that 神 slot. The exiled player leaves the match and receives the usual exile last words.
 - The shared Witch, Seer, Hunter, election and victory requirements apply. Do not assume an additional wolf-gun role in the four-wolf roster without an explicit board decision.
 
 #### 机械狼通灵师 (§§5.2–5.4, 5.6, 6.4)
@@ -135,7 +135,7 @@ The following requirements cover the three supported presets. Preserve their pla
 - No ordinary knife on N1. On subsequent nights, small wolves hold the ordinary knife while any survive; the Thief inherits it at night start after all small wolves are out. No dynamic inheritance during a night. The inherited knife can be used in the same night as the Thief's current legal role skill.
 - The Poisoner has one poison, no antidote and no knife-target information. For a Thief with the Poisoner card, an unused poison is available on a Poisoner night and is not replenished by switching.
 - Dreamer cannot dream self. A dream target is protected against ordinary knives and poison that night. A Dreamer dying at night drags that night's dream target into death; daytime exile does not drag the target. Two consecutive actual uses of the dream ability on the same target cause dream death, including when a Thief's intervening 民 night separates the uses. Consecutive dream death and death by dragging block Hunter shots.
-- A good 蒙面人 exiled by day leaves immediately. If hit by a night lethal effect (ordinary knife, poison, consecutive dream death or death by dragging), formal departure normally occurs after that player's next ordinary daytime speech, not on application of the effect. Check victory at formal departure. If a forced interruption removes that speech opportunity, the handbook allows departure at death publication; resolve that boundary consistently with the pending-death ruling below. The announcement need not explicitly identify the player as 蒙面人, although the resolution may reveal that identity. N1 蒙面人 does not receive a duplicate N1 last-words speech after their ordinary daytime speech.
+- A good 蒙面人 exiled by day leaves immediately. If hit by a night lethal effect (ordinary knife, poison, consecutive dream death or death by dragging), formal departure normally occurs after that player's next ordinary daytime speech, not on application of the effect. Check victory at formal departure. When self-destruct removes that speech opportunity and play continues, resolve the delayed departure at night-result publication if it is still pending, or at the interruption if the night result is already public. If the last wolf's self-destruct establishes a good-side win while 蒙面人 is still in play, stop the pending departure immediately. The announcement need not explicitly identify the player as 蒙面人, although the resolution may reveal that identity. N1 蒙面人 does not receive a duplicate N1 last-words speech after their ordinary daytime speech.
 - Medium inspection uses the target's identity state at the inspection point. For the Thief, show the current disguise (after switching), not the true wolf faction. Ordinary wolves return 单爪; the handbook mentions 双爪 for a wolf gun, which is not currently specified in the supported roster.
 - The handbook's special last-wolf Thief-as-蒙面 rule is outside the current app preset because the Thief cannot draw 蒙面人. Do not implement it as a reachable state unless the draw restriction changes.
 
@@ -144,25 +144,28 @@ The following requirements cover the three supported presets. Preserve their pla
 - The server owns phase transitions, eligibility, and outcomes. Validate the player, action window, and target on each submission. Persist accepted actions and their outcomes before acknowledgement so retries resolve once. Send each phone public state and only its authorized private information. Host controls grant the same visibility as any other seat. Keep night waiting screens generic.
 - Extend M1 reconnect to the current phase, private results, and pending legal actions, including after a server restart. Preserve required choices while waiting for reconnect. Pause applicable action timers and resume with the remaining time after the pause clears. Keep private action eligibility out of public disconnect and waiting messages.
 
-### Decisions before implementing gameplay
+### Supplemental gameplay rulings
 
-- Settle details §6.1 leaves implicit, including 混血儿 target eligibility and what 白痴／白神 can do after exile.
-- Define the player-facing night prompt order for 预女猎白混 and 盗宝大师, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. Use §5.4 as the night-order reference for 机械狼通灵师.
+- 混血儿 chooses any other player on N1. The Seer sees 混血儿 as good. The Witch cannot save herself and may use at most one potion each night.
+- 预女猎白混 night order is 混血儿, wolves, 女巫, 预言家, 猎人. 盗宝大师 night order is role switch, 摄梦人, wolves, 毒师, 通灵师, 猎人.
+- The first valid submission by a wolf with ordinary knife rights locks that night's shared target or pass. Allow voters to abstain. Publish voter groupings and weighted totals after the last eligible ballot, with no early closure. Preserve a required choice when a player disconnects. If the group cannot continue, the host can confirm ending the match and return everyone to the same room for a new deal.
+
+### Remaining gameplay rulings
+
 - Confirm the remaining copied-ability and inspection-result mappings, including copied Hunter gun-status timing and eligibility where not specified. Confirm whether any supported roster includes a wolf gun; if so, define its allocation and apply the handbook's gun restrictions.
-- Define the pending/formal death boundary around D1 election, 自爆吞毒 and early victory; the handbook distinguishes formal death from publication but does not fully specify which pending N1 deaths permit an intervening self-destruct. Also settle 蒙面 departure when an interruption removes its speech, the no-night-death sheriff direction convention, and mixed lethal causes affecting gun eligibility if reachable.
-- Confirm role target/skip restrictions, exact mechanical Guard empty-guard behavior, and other action details not settled in the handbook before implementing the affected board.
-- Set vote visibility and abstention behavior where the handbook is silent. Decide which ballot windows the host can close early and how to count missing ballots. Decide recovery for a disconnected player with a required choice, including how the group resumes or abandons the round.
+- Define the pending/formal death boundary around D1 election and 自爆吞毒, including which pending N1 deaths permit an intervening self-destruct. Confirm the no-night-death sheriff direction convention and mixed lethal causes affecting gun eligibility if reachable.
+- Confirm role target and skip restrictions, exact mechanical Guard empty-guard behavior, and other unresolved action details before changing them.
 
 ### M2 acceptance
 
 - On portrait iPhone Safari and Android Chrome, play from Night 1 through rematch. Verify that the current phase, action, and seat grid remain readable during play.
 - Use independent sessions to verify wolf teammate, inspection result, and pending action visibility. Recover a pending private action after a disconnect and a server restart. Retry an accepted action after a lost acknowledgement and verify it resolves once.
 - Verify that the host's game controls follow the phase and that an elected sheriff gains only the badge's game powers. Opening help or history and returning keeps the player in the current phase. Verify the public history shows night and day outcomes at the right time and omits private information.
-- Verify sheriff candidacy, vote progress, and the waiting path when ballots are outstanding. Exercise confirmed early close wherever the agreed ballot policy permits it.
+- Verify sheriff candidacy, vote progress, and that results stay unpublished while ballots are outstanding.
 - Test a first-vote tie and runoff, sheriff election interruption, badge transfer, N1 last words, and Hunter timing. Exercise immediate night victory and simultaneous victory conditions. Verify 混血儿 affiliation and the 白痴／白神 exile each count correctly.
 - Exercise the relevant shared rule boundaries: election withdrawal/runoff eligibility and second ties, sheriff weighting, self-destruct windows and pending-death handling, death/shot/badge ordering, and hidden information timing.
 - For 机械狼通灵师, test ordinary Guard empty-guard reset, same-guard/same-save death and Hunter eligibility, mechanical learning timing and visibility, reflected poison, night-start knife inheritance and that learning a 小狼 grants one extra knife usable only on a later night with ordinary knife ownership at night start.
-- For 盗宝大师, test both starting identities, mandatory switching and persistent skill resources, disguise inspections, N1 no-knife and subsequent inheritance, dream protection/dragging/consecutive-use death across switching, and good 蒙面 delayed departure. Verify that the excluded Thief-as-蒙面 state cannot arise.
+- For 盗宝大师, test both starting identities, mandatory switching and persistent skill resources, disguise inspections, N1 no-knife and subsequent inheritance, dream protection/dragging/consecutive-use death across switching, and good 蒙面 delayed departure. Verify that a good-side win after the last wolf self-destructs before dawn publication cancels the pending departure. Verify that the excluded Thief-as-蒙面 state cannot arise.
 
 ## M3. Spectating
 
@@ -177,4 +180,4 @@ The following requirements cover the three supported presets. Preserve their pla
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
-Custom lineups, bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
+Custom lineups, bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, and manual elimination are candidates for recovery tools. Define their permitted phases and effects before adding them.

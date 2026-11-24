@@ -11,9 +11,9 @@ import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
 import { openStore } from '../server/store.js';
 
-async function start(path = ':memory:', clock = Date.now) {
+async function start(path = ':memory:', clock = Date.now, matchRules) {
   const store = openStore(path);
-  const app = createApp(store, { clock });
+  const app = createApp(store, { clock, matchRules });
   app.listen(0, '127.0.0.1');
   await once(app, 'listening');
   return {
@@ -260,4 +260,64 @@ test('room expires after 24 hours without a connected player', async t => {
   await roomApi(base, code, host, 'disconnect');
   now += 24 * 60 * 60 * 1000;
   assert.equal((await roomApi(base, code, host, 'resume', {}, 404)).code, 'ROOM_GONE');
+});
+
+test('M2 launch gates, private choices, and their receipts survive the room server restarting', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'werewolf-match-'));
+  const path = join(directory, 'room.sqlite');
+  const fixtureRules = {
+    nightChoices: match => [null, ...match.night.alive],
+    applyNightChoice(match, player, kind, target) {
+      assert.equal(kind, 'knife');
+      match.night.knife = target;
+      return true;
+    },
+  };
+  let server = await start(path, Date.now, fixtureRules);
+  t.after(async () => {
+    await server.close();
+    for (const file of readdirSync(directory)) unlinkSync(join(directory, file));
+    rmdirSync(directory);
+  });
+  const { code, host } = await setup(server.base, 'mechanical');
+  assert.equal((await action(server.base, code, host, { type: 'match-start' }, 409)).code, 'NOT_READY');
+  const players = await fill(server.base, code, host);
+  await action(server.base, code, host, { type: 'deal' });
+  const cards = await Promise.all(players.map(async person => {
+    const { assignment } = await action(server.base, code, person, { type: 'reveal' });
+    await action(server.base, code, person, { type: 'acknowledge' });
+    return assignment.role;
+  }));
+  const guard = players[cards.indexOf('guard')];
+  const outsider = players[cards.findIndex((role, index) => role === 'villager' && index !== 0)];
+  assert.equal((await action(server.base, code, outsider, { type: 'match-start' }, 403)).code, 'HOST_ONLY');
+  await roomApi(server.base, code, outsider, 'disconnect');
+  assert.equal((await action(server.base, code, host, { type: 'match-start' }, 409)).code, 'NOT_READY');
+  await roomApi(server.base, code, outsider, 'sync');
+  await action(server.base, code, host, { type: 'match-start' });
+  const waiting = (await roomApi(server.base, code, outsider, 'sync')).match;
+  assert.equal(waiting.phase, 'night');
+  assert.equal(waiting.actions, undefined);
+  assert.equal(waiting.window, undefined);
+  const pending = (await roomApi(server.base, code, guard, 'sync')).match;
+  assert.equal(pending.self.nightAction.kind, 'guard');
+  assert.deepEqual(pending.actions.map(item => item.action), ['guard']);
+  const command = { type: 'match-choice', matchId: pending.matchId, window: pending.window, kind: 'night-action', choice: 1 };
+  assert.equal((await action(server.base, code, outsider, command, 409)).code, 'MATCH_ACTION');
+  await server.close();
+  server = await start(path, Date.now, fixtureRules);
+  const replacement = { ...guard, tab: randomUUID() };
+  const restored = (await roomApi(server.base, code, replacement, 'resume')).match;
+  assert.equal(restored.window, pending.window);
+  assert.deepEqual(restored.actions, pending.actions);
+  assert.equal((await action(server.base, code, guard, command, 409)).code, 'TAKEN_OVER');
+  const id = randomUUID();
+  const first = await action(server.base, code, replacement, { ...command, id });
+  assert.equal(first.room.match.self.nightAction, undefined);
+  assert.deepEqual(await action(server.base, code, replacement, { ...command, id }), first);
+  assert.equal((await action(server.base, code, replacement, { ...command, id, choice: 2 }, 409)).code, 'ACTION_ID');
+  assert.equal((await action(server.base, code, replacement, command, 409)).code, 'MATCH_ACTION');
+  const knife = (await roomApi(server.base, code, players[cards.indexOf('wolf')], 'sync')).match;
+  assert.equal(knife.actions[0].action, 'knife');
+  assert.notEqual(knife.window, pending.window);
 });

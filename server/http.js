@@ -9,6 +9,7 @@ const artwork = new Set(['home', 'room', 'empty-seat', ...Object.entries(roles).
 const files = {
   '/': ['index.html', 'text/html'],
   '/app.js': ['app.js', 'text/javascript'],
+  '/match.js': ['match.js', 'text/javascript'],
   '/boards.js': ['boards.js', 'text/javascript'],
   '/styles.css': ['styles.css', 'text/css'],
   ...Object.fromEntries([...artwork].map(name => [`/art/${name}.png`, [`art/${name}.png`, 'image/png']])),
@@ -49,8 +50,8 @@ async function jsonBody(req, limit = 8_192) {
   throw new RoomError(400, 'JSON', '请求格式不正确。');
 }
 
-export function createApp(store, { clock = Date.now, revision = 'local' } = {}) {
-  const rooms = createRooms(store, clock);
+export function createApp(store, { clock = Date.now, revision = 'local', matchRules } = {}) {
+  const rooms = createRooms(store, clock, matchRules);
   const boot = randomUUID();
   const assets = new Map(Object.entries(files).map(([path, [file, contentType]]) => [
     path,

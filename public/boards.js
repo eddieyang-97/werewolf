@@ -17,6 +17,12 @@ export const roles = {
 
 export const thiefDraw = ['poisoner', 'dreamer', 'hunter', 'medium'];
 
+export const nightSchedules = {
+  mechanical: ['guard', 'knife', 'witch', 'mechanical', 'medium', 'hunter'],
+  classic: ['mixed', 'knife', 'witch', 'seer', 'hunter'],
+  thief: ['thief-start', 'dreamer', 'knife', 'poisoner', 'medium', 'hunter'],
+};
+
 const fourVillagers = ['villager', 'villager', 'villager', 'villager'];
 const threeWolves = ['wolf', 'wolf', 'wolf'];
 

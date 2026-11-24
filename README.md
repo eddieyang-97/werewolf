@@ -1,6 +1,6 @@
 # Werewolf
 
-Mobile Werewolf for friends. M1 supports account-free rooms, invite links, seating, private role distribution, and reconnect. See [requirements](REQUIREMENTS.md) for the three board presets and milestone scope.
+Mobile Werewolf for friends. Create an account-free room, invite friends, and play any of the three 12-player presets from the first night through rematch. Each phone receives its own roles and actions. Players can reconnect to their seat and view completed ballots in the match history. See [requirements](REQUIREMENTS.md) for the presets and rules.
 
 ## Local development
 
