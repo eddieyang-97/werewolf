@@ -4,6 +4,8 @@ const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
 const notice = document.querySelector('#notice');
 const homeLink = document.querySelector('#home-link');
+const brand = document.querySelector('.brand');
+const homeTitle = document.title;
 const tab = crypto.randomUUID();
 const codePattern = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const credentialKey = code => `werewolf-room-${code}`;
@@ -115,7 +117,7 @@ function profileForm(action, label, guest) {
 
 function home() {
   return `<div class="home">
-    <h1 class="screen-reader-only">米多狼人面杀助手</h1>
+    <h1 class="screen-reader-only">${escape(homeTitle)}</h1>
     <img class="hero" src="/art/home.png" width="590" height="392" alt="">
     <div class="stack home-actions">
       ${button('创建房间', 'create-screen')}
@@ -207,6 +209,11 @@ function roomScreen() {
 
 function render() {
   const contents = { home, create: createScreen, join: joinScreen, room: roomScreen };
+  const title = screen === 'home' ? homeTitle : `米多${homeTitle}`;
+  if (document.title !== title) {
+    document.title = title;
+    brand.textContent = title;
+  }
   root.dataset.screen = screen;
   homeLink.hidden = screen === 'home';
   root.innerHTML = contents[screen]();
