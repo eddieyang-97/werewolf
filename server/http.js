@@ -55,6 +55,7 @@ export function createApp(store, { clock = Date.now, revision = 'local' } = {}) 
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
       if (req.method === 'GET' && path === '/healthz') {
+        await store.ready?.();
         respond(res, 200, { status: 'ok', boot, revision });
         return;
       }

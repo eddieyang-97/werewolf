@@ -4,14 +4,17 @@ services:
     name: werewolf
     branch: main
     region: frankfurt
-    plan: 0.5c-512mb
+    plan: free
     buildCommand: npm ci --no-audit --no-fund
     startCommand: npm start
     healthCheckPath: /healthz
-    disk:
-      name: room-data
-      mountPath: /var/data
-      sizeGB: 1
     envVars:
-      - key: ROOM_DB_PATH
-        value: /var/data/rooms.sqlite
+      - key: DATABASE_URL
+        fromDatabase:
+          name: werewolf-rooms
+          property: connectionString
+databases:
+  - name: werewolf-rooms
+    region: frankfurt
+    plan: free
+    ipAllowList: []
