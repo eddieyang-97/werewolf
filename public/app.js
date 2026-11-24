@@ -11,6 +11,7 @@ const credentialKey = code => `werewolf-room-${code}`;
 const pendingJoinKey = code => `werewolf-pending-${code}`;
 const recentKey = 'werewolf-recent';
 const pendingCreateKey = 'werewolf-create';
+const profileKey = 'werewolf-profile';
 const headers = { 'Content-Type': 'application/json' };
 const memoryStorage = new Map();
 const maxAvatarFileSize = 20 * 1024 * 1024;
@@ -52,6 +53,23 @@ function write(key, value) {
     if (value === null) memoryStorage.delete(key);
     else memoryStorage.set(key, value);
   }
+}
+
+function readProfile() {
+  try {
+    const { name, avatar } = JSON.parse(read(profileKey) ?? '{}') ?? {};
+    return {
+      name: typeof name === 'string' ? name : '',
+      avatar: typeof avatar === 'string' && avatar.length <= maxAvatarLength && /^[A-Za-z0-9+/]+={0,2}$/.test(avatar)
+        ? avatar : null,
+    };
+  } catch {
+    return { name: '', avatar: null };
+  }
+}
+
+function rememberProfile(name, avatar) {
+  write(profileKey, JSON.stringify({ name: name.normalize('NFKC').trim(), avatar: avatar ?? null }));
 }
 
 function newToken() {
@@ -109,9 +127,11 @@ function avatarField(avatar) {
 }
 
 function profileForm(action, label, guest) {
-  return `<form data-form="${action}" class="stack">
-    ${guest ? '' : '<label for="nickname">你的昵称</label><input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称">'}
-    ${avatarField(guest?.avatar)}
+  const { name, avatar } = guest ? {} : readProfile();
+  const preview = guest ? guest.avatar : avatar && `${jpegPrefix}${avatar}`;
+  return `<form data-form="${action}" class="stack"${avatar ? ` data-avatar="${escape(avatar)}"` : ''}>
+    ${guest ? '' : `<label for="nickname">你的昵称</label><input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称" value="${escape(name)}">`}
+    ${avatarField(preview)}
     <button class="button primary" type="submit">${label}</button>
   </form>`;
 }
@@ -482,12 +502,16 @@ async function submit(event) {
       const result = await request('/api/rooms', { name, board, tab, avatar }, token);
       write(pendingCreateKey, null);
       write(credentialKey(result.code), token);
-      if (period === epoch) go(`/room/${result.code}`);
+      if (period === epoch) {
+        rememberProfile(name, avatar);
+        go(`/room/${result.code}`);
+      }
     } else {
       credential ??= read(pendingJoinKey(code)) ?? newToken();
       write(pendingJoinKey(code), credential);
       const next = await roomRequest('join', { name, avatar });
       if (period === epoch) {
+        rememberProfile(next.self.name, next.self.avatar ? avatar : null);
         applyLobby(next);
         schedulePoll(1_800);
       }
@@ -520,6 +544,7 @@ async function action(type, details = {}) {
     const result = await roomRequest('action', { command: { id, type, ...details } });
     if (period !== epoch) return;
     retryAction = undefined;
+    if (type === 'avatar') rememberProfile(result.room.self.name, details.avatar);
     applyLobby(result.room);
     if (type === 'reveal') {
       const { role, extra } = result.assignment;
