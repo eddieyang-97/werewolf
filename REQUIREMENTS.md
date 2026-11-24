@@ -22,7 +22,7 @@ Build a mobile browser app for friends playing at the same table or talking on a
 
 For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、猎人、通灵师. The eligible cards are equally likely. The draw and seat assignments are saved together and restored on retry or reconnect. The handbook's 12-seat deal uses 14 cards, with 盗宝大师 holding a wolf card and the two extra cards.
 
-The proposed interpretation keeps 蒙面人 in the ordinary 神 pool and excludes it from the 盗宝大师 draw only. Under that interpretation, the four remaining 神 cards go to the four ordinary 神 seats, so their mix changes with the draw. Confirm this interpretation before implementing this preset. Removing 蒙面人 entirely would require a replacement card or a change to the 12-seat lineup.
+蒙面人 always goes to an ordinary 神 seat. The three eligible cards that 盗宝大师 did not draw fill the other ordinary 神 seats. Shuffle those four cards among the ordinary 神 seats.
 
 ### Room flow
 
@@ -49,7 +49,7 @@ The proposed interpretation keeps 蒙面人 in the ordinary 神 pool and exclude
 - On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
 - Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
 - With independent sessions, verify that every player, including the host, receives only their own role. A fresh browser with the invite or a nickname cannot recover a dealt seat.
-- For 盗宝大师, test each of the four possible 神 draws, check 14 cards across 12 seats, and verify that only the 盗宝大师 seat receives its extra cards. Verify the same draw and cards return after reconnect and deal retry.
+- For 盗宝大师, test all four possible 神 draws. Verify that each deal has 14 cards across 12 seats and that 蒙面人 and the three undrawn 神 cards go to the four ordinary 神 seats. Verify that only the 盗宝大师 seat receives its extra cards and that the same draw and cards return after reconnect and deal retry.
 - Verify recovery after refresh, phone backgrounding, network change, and server restart before and after the deal. Check that the same role, acknowledgement, and host status return. Verify duplicate-tab control and expiry.
 
 ## M2. Full match play
