@@ -1,6 +1,6 @@
 # Werewolf requirements
 
-M1 delivers room setup and private role distribution. M2 adds a complete playable match. The [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) governs game rules. Board-specific provisions take precedence. Record any additional rulings before implementing the affected behavior.
+M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating for full rooms. The [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) governs game rules. Board-specific provisions take precedence. Record any additional rulings before implementing the affected behavior.
 
 ## Product and interface
 
@@ -27,7 +27,7 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 ### Room flow
 
 1. **Create and share.** The host previews the board and creates a room. The lobby provides an 邀请好友 action that opens the phone's share sheet when available and offers a copy-link option. The link identifies the room and can be pasted into a group chat.
-2. **Enter the room.** Tapping an invite opens that room directly. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. A returning player with a valid room credential resumes their session automatically. The home screen's 加入房间 action also supports entry with a short room code.
+2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, show new guests that the room is full until M3 adds spectating. The home screen's 加入房间 action also supports entry with a short room code.
 3. **Take a seat.** Players, including the host, claim vacant numbered seats and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats. Before the deal the host can remove a guest, including one who is disconnected or unseated. Removal revokes the guest's room session, frees any seat they held, and updates the lobby for everyone.
 4. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
 5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
@@ -108,6 +108,12 @@ Apply the board-specific rules for the three M1 presets. Implement 机械狼 lea
 - Verify sheriff candidacy, vote progress, and the waiting path when ballots are outstanding. Exercise confirmed early close wherever the agreed ballot policy permits it.
 - Test a first-vote tie and runoff, sheriff election interruption, badge transfer, N1 last words, and Hunter timing. Exercise immediate night victory and simultaneous victory conditions. Verify 混血儿 affiliation and the 白痴／白神 exile each count correctly.
 
+## M3. Spectating
+
+- When all 12 seats are occupied, offer new guests 观战 from the same room invite or code, including during a match. Restore an existing player's session before offering spectator entry.
+- Spectators are account-free and use no seat. Show them only public room and match information at the same publication points as players. A spectator's session has read-only access.
+- Verify that a new guest can spectate a full lobby and a match in progress. Check that spectator entry leaves the roster and deal unchanged, that returning players keep their seats, and that spectators receive no private roles, pending actions, or unreleased votes.
+
 ## Later candidates
 
 | Board | Gameplay additions | Governing section |
@@ -115,4 +121,4 @@ Apply the board-specific rules for the three M1 presets. Implement 机械狼 lea
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
-Custom lineups, bot rehearsal, personal notes, narration, spectators, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
+Custom lineups, bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
