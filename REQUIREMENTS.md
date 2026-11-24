@@ -8,11 +8,23 @@ Build a mobile browser app for friends playing at the same table or talking on a
 
 - Target portrait iPhone Safari and Android Chrome. An invite opens directly in the browser. Provide touch-friendly actions, clear room status, and an accessible seat grid that fits narrow screens without horizontal scrolling.
 - Use Simplified Chinese for player-facing copy as a working assumption.
-- Follow both sets of 米多狼人面杀助手 screenshots for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
+- Follow the supplied [米多狼人面杀助手 screenshots](docs/ui-references/README.md) for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
 
 ## M1. Room setup and private role distribution
 
-Use one official 12-player board for the initial deal. The proposed board is **预女猎白混** (§6.1), with four wolves, four power roles (预言家、女巫、猎人、白痴／白神), and four civilian seats (three 村民 and one 混血儿).
+### Board presets
+
+| Preset | Twelve seats | Handbook |
+| --- | --- | --- |
+| 机械狼通灵师 | 3 小狼 and 1 机械狼, 4 神 (通灵师、女巫、守卫、猎人), and 4 村民. | §6.4 |
+| 预女猎白混 | 4 狼人, 4 神 (预言家、女巫、猎人、白痴／白神), and 4 民 (3 村民 and 1 混血儿). | §6.1 |
+| 盗宝大师 | 3 小狼 and 1 盗宝大师, 4 ordinary 神, and 4 村民. The 盗宝大师 seat also holds one randomly assigned 神 card and one 村民 card. | §6.3 with the draw restriction below |
+
+For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、猎人、通灵师. The eligible cards are equally likely. The draw and seat assignments are saved together and restored on retry or reconnect. The handbook's 12-seat deal uses 14 cards, with 盗宝大师 holding a wolf card and the two extra cards.
+
+The proposed interpretation keeps 蒙面人 in the ordinary 神 pool and excludes it from the 盗宝大师 draw only. Under that interpretation, the four remaining 神 cards go to the four ordinary 神 seats, so their mix changes with the draw. Confirm this interpretation before implementing this preset. Removing 蒙面人 entirely would require a replacement card or a change to the 12-seat lineup.
+
+### Room flow
 
 1. **Create or join.** The host previews the board and creates a room. Friends join by invite link or short room code with a room-specific nickname. Everyone sees the public role counts.
 2. **Take a seat.** Players, including the host, claim vacant numbered seats and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats.
@@ -21,9 +33,9 @@ Use one official 12-player board for the initial deal. The proposed board is **�
 
 ### Mobile setup screens
 
-- **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens a board preview with the player count and role lineup before confirmation. Joining opens room-code entry, and an invite link goes directly to the join flow.
+- **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens the quick preset selector with the three boards, then previews the selected board's player count and role lineup before confirmation. For 盗宝大师, show four ordinary 神 seats and label the four possible cards for the Thief's random draw. Keep the actual draw out of the public preview and lobby. Joining opens room-code entry, and an invite link goes directly to the join flow.
 - **Room and seat grid.** Place the room code, setup status, own seat number, and 查看我的身份 above the room actions and three-column seat grid. Show the host, connection status, and acknowledgement status with clear labels. Keep the invite and 本局配置 accessible, with the deal control available to the host.
-- **Role and confirmation panels.** Open a dismissible, private role card on demand after the deal. Return the player to the lobby when the card is dismissed. Ask the host to confirm the deal before locking the roster.
+- **Role and confirmation panels.** Open a dismissible, private role card on demand after the deal. Reuse the same role widget for 机械狼 and 盗宝大师 with each role's own name and description. Only the 盗宝大师 seat sees its two extra cards in that widget. Each seat acknowledges receipt once. Return the player to the lobby when the card is dismissed. Ask the host to confirm the deal before locking the roster.
 
 ### Account-free reconnect
 
@@ -34,9 +46,10 @@ Use one official 12-player board for the initial deal. The proposed board is **�
 
 ### M1 acceptance
 
-- On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the setup, role card, and seat grid on a narrow phone.
+- On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
 - Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
 - With independent sessions, verify that every player, including the host, receives only their own role. A fresh browser with the invite or a nickname cannot recover a dealt seat.
+- For 盗宝大师, test each of the four possible 神 draws, check 14 cards across 12 seats, and verify that only the 盗宝大师 seat receives its extra cards. Verify the same draw and cards return after reconnect and deal retry.
 - Verify recovery after refresh, phone backgrounding, network change, and server restart before and after the deal. Check that the same role, acknowledgement, and host status return. Verify duplicate-tab control and expiry.
 
 ## M2. Full match play
@@ -59,12 +72,14 @@ The host can open the sheriff election, advance speaking and last words, publish
 - **Voting progress.** Show the host received and expected ballot counts. Show pending seat numbers only for voting windows where that information is allowed. If early close is permitted, offer to keep waiting or confirm closing the ballot and show how missing ballots will be counted. Keep this control gated on the ruling for missing ballots.
 - **Ownership and recovery.** Keep administrative actions in a host menu and keep room ownership separate from the sheriff badge. Badge transfer or destruction follows the board's rules. A fresh deal after a completed game follows the rematch flow.
 
-### Rules required for 预女猎白混
+### Rules required for match play
+
+Apply the board-specific rules for the three M1 presets. Implement 机械狼 learning and copied abilities under §§5.4 and 6.4. Implement 盗宝大师 switching, ability timing, inspection, and formal death under §6.3 with the M1 draw restriction. The rules below cover shared behavior and the additions for 预女猎白混.
 
 | Area | Requirement |
 | --- | --- |
 | Death and victory | Check both win conditions at each formal death or simultaneous resolution. Wolves win when every power-role or every civilian seat has formally left. The good side wins when all wolves are eliminated. Wolves win if the final wolf and final member of a required good-side category die in the same related resolution. End immediately on a win, even at night, and stop pending last words, shots, death abilities, and badge transfers. §§1–2 |
-| Night | Collect authorized wolf and role actions privately. Resolve actions against the whole night. A lethal effect applied earlier in the action order generally leaves the affected role’s legal night action intact. Public death announcements are distinct from formal death resolution. Show the Witch the normal wolf target while the antidote remains. §§1, 4.3, 5.1, 5.4 |
+| Night | Collect authorized wolf and role actions privately. Resolve actions against the whole night. A lethal effect applied earlier in the action order generally leaves the affected role’s legal night action intact. Public death announcements are distinct from formal death resolution. On boards with a Witch, show her the normal wolf target while the antidote remains. §§1, 4.3, 5.1, 5.4 |
 | 混血儿 and 白痴／白神 | Track role card, elimination category, and winning affiliation independently. 混血儿 chooses a model on N1 and follows their winning affiliation while counting toward the civilian elimination category. 白痴／白神 counts as having left the power-role category on exile. §6.1 |
 | Day 1 sheriff election | Run candidacy, withdrawals, speaking, voting, and any election runoff before announcing N1 deaths, subject to immediate victory and interruption rules. Support the single-candidate result, badge loss, voter eligibility, and one permitted postponement on wolf self-destruct. §§1, 3.1–3.3, 4.3 |
 | Discussion and badge | Support random speaking order without a badge, sheriff direction choices, final nomination, conditional 1.5-vote weighting, and badge transfer or destruction. Keep Seer results private. Let players convey them in play through the permitted speech direction or badge choices. §§3.4–3.6 |
@@ -79,7 +94,7 @@ The host can open the sheriff election, advance speaking and last words, publish
 ### Decisions before implementing gameplay
 
 - Settle details §6.1 leaves implicit, including 混血儿 target eligibility and what 白痴／白神 can do after exile.
-- Specify the first board’s exact night prompt order, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. The night order in §5.4 is for 机械狼通灵师.
+- Specify the exact night prompt order for 预女猎白混 and 盗宝大师, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. The night order in §5.4 is for 机械狼通灵师.
 - Set vote visibility and abstention behavior where the handbook is silent. Decide which ballot windows the host can close early and how to count missing ballots. Decide recovery for a disconnected player with a required choice, including how the group resumes or abandons the round.
 
 ### M2 acceptance
@@ -95,8 +110,6 @@ The host can open the sheriff election, advance speaking and last words, publish
 | Board | Gameplay additions | Governing section |
 | --- | --- | --- |
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
-| 盗宝大师 | Fourteen cards across twelve seats, identity switching, and delayed death. | §6.3 |
-| 机械狼通灵师 | Mechanical Wolf learning, copied abilities, and Spiritualist inspection. | §6.4 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
 Custom lineups, bot rehearsal, personal notes, narration, spectators, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
