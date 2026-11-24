@@ -1,6 +1,10 @@
 # Werewolf requirements
 
-M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating for full rooms. The [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) governs game rules. Board-specific provisions take precedence. Record any additional rulings before implementing the affected behavior.
+M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating for full rooms.
+
+This document defines the app’s required behavior and acceptance criteria. Use the [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) as a reference for board rules and unresolved cases. Within the handbook, board-specific provisions take precedence over general provisions.
+
+Choose internal states, transition boundaries and prompts that fit the app and preserve its documented behavior. When a tradeoff changes player choices, information visibility or timing, or game outcomes, record the agreed app behavior here before implementing it.
 
 ## Product and interface
 
@@ -14,7 +18,7 @@ Build a mobile browser app for friends playing at the same table or talking on a
 
 ### Board presets
 
-| Preset | Twelve seats | Handbook |
+| Preset | Twelve seats | Handbook reference |
 | --- | --- | --- |
 | 机械狼通灵师 | 3 小狼 and 1 机械狼, 4 神 (通灵师、女巫、守卫、猎人), and 4 村民. | §6.4 |
 | 预女猎白混 | 4 狼人, 4 神 (预言家、女巫、猎人、白痴／白神), and 4 民 (3 村民 and 1 混血儿). | §6.1 |
@@ -83,7 +87,7 @@ The host can open the sheriff election, advance speaking and last words, publish
 
 ### Rules required for match play
 
-Apply the board-specific rules for the three M1 presets. Implement 机械狼 learning and copied abilities under §§5.4 and 6.4. Implement 盗宝大师 switching, ability timing, inspection, and formal death under §6.3 with the M1 draw restriction. The rules below cover shared behavior and the additions for 预女猎白混.
+Support 机械狼 learning and copied abilities (handbook §§5.4 and 6.4) and 盗宝大师 switching, ability timing, inspection, and formal death (§6.3), with the M1 draw restriction. The table specifies shared match behavior and the additions for 预女猎白混.
 
 | Area | Requirement |
 | --- | --- |
@@ -103,7 +107,7 @@ Apply the board-specific rules for the three M1 presets. Implement 机械狼 lea
 ### Decisions before implementing gameplay
 
 - Settle details §6.1 leaves implicit, including 混血儿 target eligibility and what 白痴／白神 can do after exile.
-- Specify the exact night prompt order for 预女猎白混 and 盗宝大师, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. The night order in §5.4 is for 机械狼通灵师.
+- Define the player-facing night prompt order for 预女猎白混 and 盗宝大师, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. Use §5.4 as the night-order reference for 机械狼通灵师.
 - Set vote visibility and abstention behavior where the handbook is silent. Decide which ballot windows the host can close early and how to count missing ballots. Decide recovery for a disconnected player with a required choice, including how the group resumes or abandons the round.
 
 ### M2 acceptance
@@ -122,7 +126,7 @@ Apply the board-specific rules for the three M1 presets. Implement 机械狼 lea
 
 ## Later candidates
 
-| Board | Gameplay additions | Governing section |
+| Board | Gameplay additions | Handbook reference |
 | --- | --- | --- |
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
