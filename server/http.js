@@ -2,12 +2,16 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRooms, RoomError } from './rooms.js';
+import { roles } from '../public/boards.js';
+
+const artwork = new Set(['home', 'room', 'empty-seat', ...Object.entries(roles).map(([key, role]) => role.art ?? key)]);
 
 const files = {
   '/': ['index.html', 'text/html'],
   '/app.js': ['app.js', 'text/javascript'],
   '/boards.js': ['boards.js', 'text/javascript'],
   '/styles.css': ['styles.css', 'text/css'],
+  ...Object.fromEntries([...artwork].map(name => [`/art/${name}.png`, [`art/${name}.png`, 'image/png']])),
 };
 const roomPattern = '[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}';
 const apiRoute = new RegExp(`^/api/rooms/(${roomPattern})(?:/(join|resume|sync|action|disconnect))?$`);
@@ -62,8 +66,13 @@ export function createApp(store, { clock = Date.now, revision = 'local' } = {}) 
       const isAppPage = roomPage.test(path) || path === '/create' || path === '/join';
       const asset = isAppPage ? assets.get('/') : assets.get(path);
       if (req.method === 'GET' && asset) {
-        res.writeHead(200, { ...securityHeaders, 'Content-Type': `${asset[1]}; charset=utf-8` });
-        res.end(asset[0]);
+        const [body, type] = asset;
+        res.writeHead(200, {
+          ...securityHeaders,
+          'Content-Type': type.startsWith('text/') ? `${type}; charset=utf-8` : type,
+          ...(type === 'image/png' ? { 'Cache-Control': 'public, max-age=3600' } : {}),
+        });
+        res.end(body);
         return;
       }
       const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]+)$/)?.[1];

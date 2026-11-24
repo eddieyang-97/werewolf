@@ -8,7 +8,7 @@ Build a mobile browser app for friends playing at the same table or talking on a
 
 - Target portrait iPhone Safari and Android Chrome. An invite opens directly in the browser. Provide touch-friendly actions, clear room status, and an accessible seat grid that fits narrow screens without horizontal scrolling.
 - Use Simplified Chinese for player-facing copy as a working assumption.
-- Follow the supplied [米多狼人面杀助手 screenshots](docs/ui-references/README.md) for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
+- Match the supplied [米多狼人面杀助手 screenshots](docs/ui-references/README.md) for the M1 screens, including the layout, typography, palette, and supplied artwork. Use browser-native phone chrome and keep the account-free nickname steps.
 
 ## M1. Room setup and private role distribution
 

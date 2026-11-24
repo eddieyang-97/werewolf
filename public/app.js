@@ -69,9 +69,8 @@ function button(label, action, options = {}) {
 }
 
 function roleMark(roleId) {
-  const role = roles[roleId];
-  const special = ['mechanical', 'thief'].includes(roleId);
-  return `<span class="mark ${role.side}${special ? ' special' : ''}" aria-hidden="true">${role.mark}</span>`;
+  const art = roles[roleId].art ?? roleId;
+  return `<img class="mark" src="/art/${art}.png" alt="" width="75" height="75">`;
 }
 
 function roleTile(roleId) {
@@ -85,7 +84,7 @@ function boardPreview(boardId, showName = false) {
   const selected = boards[boardId];
   return `<div class="board-preview">
     ${showName ? `<h3 class="board-name">${selected.name}</h3>` : ''}
-    <p class="player-count">总玩家数 <strong>12 人</strong></p>
+    <p class="player-count">总玩家数：<strong>12人</strong></p>
     <div class="role-grid">${selected.preview.map(roleTile).join('')}</div>
     ${boardId === 'thief' ? `<p class="draw-note">盗宝神牌随机抽取一张 · ${thiefDraw.map(id => roles[id].name).join('、')}</p>` : ''}
   </div>`;
@@ -101,13 +100,14 @@ function nicknameForm(action, label) {
 
 function home() {
   return `<div class="home">
-    <h1 class="screen-reader-only">狼人杀</h1>
-    <div class="scene hero" aria-hidden="true"><span class="scene-moon"></span><span class="scene-ridge"></span></div>
+    <h1 class="screen-reader-only">米多狼人面杀助手</h1>
+    <img class="hero" src="/art/home.png" width="590" height="392" alt="">
     <div class="stack home-actions">
       ${button('创建房间', 'create-screen')}
       ${button('加入房间', 'join-screen')}
-      ${button('回到最近一局', 'recent', { variant: 'secondary', disabled: !read(recentKey) })}
+      ${button('回到最近一局', 'recent', { variant: 'secondary' })}
     </div>
+    <div class="home-help">${button('用法简介', 'help', { variant: 'quiet' })}</div>
   </div>`;
 }
 
@@ -117,7 +117,7 @@ function createScreen() {
       ${Object.entries(boards).map(([id, item]) => `<button type="button" class="preset" data-action="preset" data-value="${id}" aria-pressed="${id === board}">${item.name}</button>`).join('')}
     </div>
     ${boardPreview(board)}
-    ${nicknameForm('create', '确认创建')}`;
+    <div class="setup-actions">${button('确认创建', 'create-details', { variant: 'secondary' })}</div>`;
 }
 
 function joinScreen() {
@@ -136,11 +136,11 @@ function seatTile(guest, index) {
   const playable = lobby.state === 'lobby' && connected && (!guest || mine);
   const name = guest?.name ?? '空座位';
   const label = mine && playable ? '点击起立' : name;
-  const sub = !guest ? '空座位' : !guest.connected ? '离线' : guest.acknowledged ? '已确认' : '已入座';
+  const sub = !guest ? '空座位' : !guest.connected ? '离线' : guest.acknowledged ? '已准备' : '已坐下';
   return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="seat" data-value="${seat}" aria-label="${seat}号座，${escape(label)}" ${playable ? '' : 'disabled'}>
-    <span class="seat-top"><span class="seat-number">${String(seat).padStart(2, '0')}</span>${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
-    <strong>${escape(guest ? name : '等待入座')}</strong>
-    <span class="seat-state${guest?.connected ? ' present' : ''}">${sub}</span>
+    <span class="seat-top">${guest ? `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>` : '<img class="seat-avatar" src="/art/empty-seat.png" width="55" height="55" alt="">'}${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
+    <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
+    <span class="seat-state${guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected ? '✓' : 'ⓘ'}</span> ${sub}</span>
   </button>`;
 }
 
@@ -158,22 +158,20 @@ function roomScreen() {
   const acknowledgements = seats.filter(guest => guest?.acknowledged).length;
   const boardName = boards[lobby.board].name;
   const phaseSummary = state === 'lobby' ? `${seatedCount} / 12 已入座` : `${acknowledgements} / 12 已确认`;
-  const phaseInstruction = state === 'lobby' ? '点空座入座 · 点自己的座位起立'
+  const phaseInstruction = state === 'lobby' ? '点击空座位坐下，点击自己可站起来'
     : state === 'ready' ? '全部身份已确认' : '请查看并确认身份';
   return `<h1 class="screen-reader-only">${boardName}</h1>
     <div class="room-tools">
-      ${button('本局配置', 'config', { variant: 'quiet' })}
+      ${button('用法简介', 'help', { variant: 'quiet' })}
       ${self.host && state === 'lobby' ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
+      ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
     <section class="room-overview">
-      <div class="room-board">
-        <div class="scene room-scene" aria-hidden="true"><span class="scene-moon"></span><span class="scene-ridge"></span></div>
-        <strong>${boardName}</strong>
-      </div>
+      <img class="room-art" src="/art/room.png" width="225" height="241" alt="">
       <div class="room-meta">
-        <div><span class="meta-label">房间编号</span><strong class="room-code">${code}</strong></div>
-        <div><span class="meta-label">房间状态</span><strong>${phases[state]}</strong></div>
-        <div><span class="meta-label">我的座位</span><strong>${self.seat ?? '未入座'}</strong></div>
+        <div><span class="meta-label">房间编号：</span><strong class="room-code">${code}</strong></div>
+        <div><span class="meta-label">房间状态：</span><strong>${phases[state]}</strong></div>
+        <div><span class="meta-label">我的座位：</span><strong>${self.seat ?? '未入座'}</strong></div>
         ${button('查看我的身份', 'reveal', { variant: 'secondary', disabled: !connected || state === 'lobby' })}
       </div>
     </section>
@@ -195,8 +193,9 @@ function render() {
   root.innerHTML = contents[screen]();
 }
 
-function showDialog(title, body) {
-  dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
+function showDialog(title, body, appearance = '') {
+  dialog.className = appearance;
+  dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${appearance === 'identity-dialog' ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
   if (!dialog.open) dialog.showModal();
 }
 
@@ -423,9 +422,9 @@ async function action(type, details = {}) {
     applyLobby(result.room);
     if (type === 'reveal') {
       const { role, extra } = result.assignment;
-      showDialog('我的身份', `<div class="identity">${roleMark(role)}<h3>${roles[role].name}</h3><p>${roles[role].description}</p></div>
-        ${extra ? `<p class="meta-label">你的额外牌</p><div class="extra-cards">${extra.map(roleTile).join('')}</div>` : ''}
-        ${button(lobby.self.acknowledged ? '返回房间' : '确认身份', lobby.self.acknowledged ? 'close' : 'acknowledge')}`);
+      showDialog('我的身份', `<div class="identity"><div class="identity-detail">${roleMark(role)}<h3>${roles[role].name}</h3><p>${roles[role].description}</p>
+        ${extra ? `<h4 class="meta-label">你的额外牌</h4><div class="extra-cards">${extra.map(roleTile).join('')}</div>` : ''}</div>
+        ${button('我知道了', lobby.self.acknowledged ? 'close' : 'acknowledge', { variant: 'identity-accept' })}</div>`, 'identity-dialog');
     } else dialog.close();
   } catch (error) {
     if (period !== epoch) return;
@@ -475,16 +474,18 @@ async function click(event) {
     case 'recent': {
       const recent = read(recentKey);
       if (codePattern.test(recent ?? '')) return go(`/room/${recent}`);
-      return;
+      return message('还没有最近的房间。');
     }
     case 'preset': {
-      const name = root.querySelector('#nickname')?.value;
       board = value;
       render();
-      root.querySelector('#nickname').value = name ?? '';
       root.querySelector(`[data-value="${value}"]`).focus();
       return;
     }
+    case 'create-details':
+      return showDialog('创建房间', nicknameForm('create', '确认创建'));
+    case 'help':
+      return showDialog('用法简介', '<ol class="help-steps"><li>房主选择板子并邀请好友。</li><li>点击空座位入座。</li><li>房主在 12 位玩家入座后发放身份。</li><li>查看自己的身份并点击「我知道了」。</li></ol>');
     case 'invite':
       return showDialog('邀请好友', `<label for="invite-link">房间链接</label><input id="invite-link" value="${escape(inviteUrl())}" readonly>
         <div class="dialog-actions">${button('复制链接', 'copy-invite')}${navigator.share ? button('分享链接', 'share-invite', { variant: 'secondary' }) : ''}</div>`);

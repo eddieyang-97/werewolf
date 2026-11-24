@@ -1,6 +1,6 @@
 # Werewolf UI references
 
-The supplied screenshots are kept here in the local checkout for design review. Git ignores the original JPEGs. The app uses its own artwork and styling.
+The supplied screenshots are kept here in the local checkout for design review. Git ignores the original JPEGs. The M1 app uses the authorized artwork crops in `public/art/`.
 
 | Local folder | Images | Reference screens |
 | --- | --- | --- |
