@@ -386,7 +386,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.notEqual(knife.window, pending.window);
   }, { postgres: true, persistent: true });
 
-  roomTest('custom room capacity and private deal survive restart and rematch', async start => {
+  roomTest('custom room rules, capacity and private deal survive restart and rematch', async start => {
     const clock = () => 10_000;
     let base = await start({ clock, matchRules });
     const host = browser();
@@ -402,15 +402,35 @@ describe('room HTTP', { concurrency: 4 }, () => {
       const result = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode }, 400);
       assert.equal(result.code, 'SHERIFF_MODE');
     }
+    for (const customRules of [null, [], 'town', { unknown: 'town' }, { victoryMode: 'toString' },
+      { firstNightKnife: false }, { witchSelfSave: ['allowed'] }]) {
+      const result = await json(base, '/api/rooms', host, { ...create, lineup, customRules }, 400);
+      assert.equal(result.code, 'CUSTOM_RULES');
+    }
+    const presetRules = await json(base, '/api/rooms', host, { ...create, board: 'classic', customRules: {} }, 400);
+    assert.equal(presetRules.code, 'CUSTOM_RULES');
     const defaultHost = browser();
     const defaultRoom = await json(base, '/api/rooms', defaultHost, { ...create, tab: defaultHost.tab, lineup }, 201);
-    assert.equal((await json(base, `/api/rooms/${defaultRoom.code}`)).sheriffMode, 'double');
-    const { code } = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode: 'none' }, 201);
+    const defaults = await json(base, `/api/rooms/${defaultRoom.code}`);
+    assert.equal(defaults.sheriffMode, 'double');
+    assert.deepEqual(defaults.customRules, { victoryMode: 'side', firstNightKnife: 'enabled', witchSelfSave: 'forbidden' });
+    for (const townLineup of [['wolf', 'villager', 'villager'], ['wolf', 'seer', 'witch']]) {
+      const townHost = browser();
+      const request = { ...create, tab: townHost.tab, lineup: townLineup };
+      assert.equal((await json(base, '/api/rooms', townHost, request, 400)).code, 'LINEUP');
+      const townRoom = await json(base, '/api/rooms', townHost, { ...request, customRules: { victoryMode: 'town' } }, 201);
+      const town = await json(base, `/api/rooms/${townRoom.code}`);
+      assert.deepEqual(town.lineup, townLineup);
+      assert.deepEqual(town.customRules, { ...defaults.customRules, victoryMode: 'town' });
+    }
+    const customRules = { victoryMode: 'town', firstNightKnife: 'disabled', witchSelfSave: 'allowed' };
+    const { code } = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode: 'none', customRules }, 201);
     const retry = await json(base, '/api/rooms', host, { ...create, lineup: ['wolf', 'seer', 'villager'], sheriffMode: 'single' }, 201);
     assert.equal(retry.code, code);
     const status = await json(base, `/api/rooms/${code}`);
     assert.deepEqual(status.lineup, lineup);
     assert.equal(status.sheriffMode, 'none');
+    assert.deepEqual(status.customRules, customRules);
     assert.equal(status.full, false);
     assert.equal((await roomApi(base, code, host, 'resume')).seats.length, lineup.length);
     await action(base, code, host, { type: 'deal' }, 409);
@@ -440,21 +460,26 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const resumed = await roomApi(base, code, host, 'resume');
     assert.deepEqual(resumed.lineup, lineup);
     assert.equal(resumed.sheriffMode, 'none');
+    assert.deepEqual(resumed.customRules, customRules);
     assert.equal(resumed.canStart, true);
     assert.deepEqual((await action(base, code, host, { type: 'reveal' })).assignment, assignments[0]);
     await action(base, code, host, deal);
     await action(base, code, host, { type: 'match-start' });
+    base = await start({ clock, matchRules });
     const kingIndex = assignments.findIndex(card => card.role === 'wolfKing');
-    const kingView = await roomApi(base, code, participants[kingIndex], 'sync');
-    assert.equal(kingView.match.actions[0].action, 'knife');
-    assert.ok(!kingView.match.actions[0].options.includes(kingIndex + 1));
+    const kingView = await roomApi(base, code, participants[kingIndex], 'resume');
+    assert.equal(kingView.match.actions[0].action, 'wolf-recognition');
+    assert.deepEqual(kingView.match.actions[0].options, ['confirm']);
+    assert.deepEqual(kingView.match.self.teammates, [assignments.findIndex(card => card.role === 'wolf') + 1]);
     await action(base, code, participants[kingIndex], { type: 'match-choice', matchId: kingView.match.matchId,
-      window: kingView.match.window, kind: 'night-action', choice: null });
+      window: kingView.match.window, kind: 'night-action', choice: 'confirm' });
     const seer = participants[assignments.findIndex(card => card.role === 'seer')];
     const seerView = (await roomApi(base, code, seer, 'sync')).match;
     await action(base, code, seer, { type: 'match-choice', matchId: seerView.matchId, window: seerView.window,
       kind: 'night-action', choice: kingIndex + 1 });
-    assert.equal((await roomApi(base, code, spectator, 'sync')).match.self, undefined);
+    const spectatorView = await roomApi(base, code, spectator, 'sync');
+    assert.equal(spectatorView.match.self, undefined);
+    assert.deepEqual(spectatorView.customRules, customRules);
     const hostMatch = (await roomApi(base, code, host, 'sync')).match;
     assert.deepEqual(hostMatch.actions.map(item => item.kind).filter(kind => kind !== 'self-destruct'), ['publish-night']);
     const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });
@@ -462,6 +487,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const rematch = await action(base, code, host, { type: 'match-choice', matchId, window, kind: 'rematch' });
     assert.deepEqual(rematch.room.lineup, lineup);
     assert.equal(rematch.room.sheriffMode, 'none');
+    assert.deepEqual(rematch.room.customRules, customRules);
     assert.equal(rematch.room.seats.length, lineup.length);
     assert.equal(rematch.room.canDeal, true);
   }, { postgres: true, persistent: true });

@@ -1,7 +1,7 @@
 import { formalDeaths, isPackWolf, playerAt } from './match-state.js';
 
 export function knifeOwners(match, alive) {
-  if (match.board === 'thief' && match.round === 1) return [];
+  if (match.round === 1 && (match.board === 'thief' || match.customRules?.firstNightKnife === 'disabled')) return [];
   const wolves = alive.filter(isPackWolf);
   if (wolves.length) return wolves.map(player => player.seat);
   return alive.filter(player => ['mechanical', 'thief'].includes(player.role)).map(player => player.seat);

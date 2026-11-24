@@ -15,10 +15,13 @@ export function publicSpeaker(match) {
 }
 
 function privateNight(match, player) {
-  if (match.phase !== 'night') return {};
+  const inNight = match.phase === 'night';
+  const recoveringRecognition = match.round === 1 && !match.winner
+    && match.customRules?.firstNightKnife === 'disabled';
+  if (!inNight && !recoveringRecognition) return {};
   const { step, alive } = match.night;
   const result = {};
-  if (step.seats.includes(player.seat)) {
+  if (inNight && step.seats.includes(player.seat)) {
     const options = fixedChoices(match, player, step.kind);
     if (options) {
       result.nightAction = { kind: step.kind, window: match.window, options };

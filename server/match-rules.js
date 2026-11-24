@@ -4,7 +4,8 @@ import { nightSchedules } from '../public/boards.js';
 function witchChoices(match, player) {
   const { knife, alive } = match.night;
   const choices = [];
-  if (knife && knife !== player.seat && !player.used.antidote) choices.push('save');
+  const canSelfSave = match.customRules?.witchSelfSave === 'allowed';
+  if (knife && !player.used.antidote && (knife !== player.seat || canSelfSave)) choices.push('save');
   if (!player.used.poison) choices.push(...alive.map(seat => `poison:${seat}`));
   return choices.length ? [null, ...choices] : [];
 }

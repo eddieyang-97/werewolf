@@ -103,9 +103,10 @@ form.stack > .button { width: min(100%, 190px); justify-self: center; margin-top
 .custom-setting { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 13px 0; }
 .custom-setting + .custom-setting { border-top: 1px solid var(--line); }
 .setting-value { color: var(--muted); }
-.custom-sheriff-row { width: 100%; min-height: 48px; border: 0; color: var(--text); background: transparent; }
-.custom-sheriff-row .setting-value { display: flex; align-items: center; gap: 10px; color: var(--green-text); }
-.config-sheriff { margin-top: 14px; text-align: center; color: var(--muted); }
+.custom-setting-button { width: 100%; min-height: 48px; border: 0; color: var(--text); background: transparent; }
+.custom-setting-button .setting-value { display: flex; align-items: center; gap: 10px; color: var(--green-text); }
+.config-rules { margin: 14px 0 0; }
+.config-rules dd { margin: 0; }
 .custom-preview { border-top: 1px solid var(--line); padding-top: 14px; }
 .custom-preview .setup-actions { margin-top: 18px; }
 .custom-empty, .custom-hint { color: var(--muted); text-align: center; font-size: .84rem; padding-block: 10px; }
@@ -174,13 +175,13 @@ dialog::backdrop { background: #0008; }
 dialog label + input { margin-top: 6px; }
 .identity-dialog { padding: 26px 0 0; }
 .identity-dialog .dialog-title { min-height: 31px; margin-bottom: 12px; }
-.sheriff-dialog { position: fixed; inset: auto 0 0; width: min(100%, 590px); max-width: 100%; margin: 0 auto; padding: 18px 20px max(24px, env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
-.sheriff-options { min-width: 0; margin: 0; padding: 0; border: 0; }
-.sheriff-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding-inline: 10px; color: var(--text); font-size: .96rem; cursor: pointer; }
-.sheriff-option + .sheriff-option { border-top: 1px solid var(--line); }
-.sheriff-option:has(:checked) { color: var(--green-text); font-weight: 650; }
-.sheriff-option input { width: 17px; min-height: 17px; margin: 0; padding: 0; accent-color: var(--green-text); }
-.sheriff-dialog .dialog-actions { gap: 12px; margin-top: 24px; }
+.settings-dialog { position: fixed; inset: auto 0 0; width: min(100%, 590px); max-width: 100%; margin: 0 auto; padding: 18px 20px max(24px, env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
+.settings-options { min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding-inline: 10px; color: var(--text); font-size: .96rem; cursor: pointer; }
+.settings-option + .settings-option { border-top: 1px solid var(--line); }
+.settings-option:has(:checked) { color: var(--green-text); font-weight: 650; }
+.settings-option input { width: 17px; min-height: 17px; margin: 0; padding: 0; accent-color: var(--green-text); }
+.settings-dialog .dialog-actions { gap: 12px; margin-top: 24px; }
 .ballot-dialog { padding: 26px 0 0; text-align: center; }
 .ballot-dialog .dialog-title { min-height: 31px; margin-bottom: 20px; }
 .ballot-detail { margin: 0 22px 21px; border: 1px solid #ccc; padding: 8px; color: var(--muted); }

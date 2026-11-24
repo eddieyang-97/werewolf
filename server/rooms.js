@@ -1,6 +1,8 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import jpeg from 'jpeg-js';
-import { boards, customLineupError, defaultSheriffMode, presetSeatCount, sheriffModes } from '../public/boards.js';
+import {
+  boards, customLineupError, customRuleOptions, defaultCustomRules, defaultSheriffMode, presetSeatCount, sheriffModes,
+} from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
 import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
@@ -144,7 +146,11 @@ function publicStatus(room, now) {
   return {
     code: room.code,
     board: room.board,
-    ...(room.lineup ? { lineup: room.lineup, sheriffMode: room.sheriffMode ?? defaultSheriffMode } : {}),
+    ...(room.lineup ? {
+      lineup: room.lineup,
+      sheriffMode: room.sheriffMode ?? defaultSheriffMode,
+      customRules: { ...defaultCustomRules, ...room.customRules },
+    } : {}),
     state: room.match ? (room.match.winner ? 'finished' : 'playing') : ready ? 'ready' : room.dealt ? 'dealt' : 'lobby',
     full: seated.length === seatCount,
     seated,
@@ -315,10 +321,17 @@ export function createRooms(store, clock = Date.now, matchRules) {
   }
 
   return {
-    async create(board, name, token, tab, avatar, lineup, sheriffMode) {
+    async create(board, name, token, tab, avatar, lineup, sheriffMode, customRules) {
       validateTab(tab);
+      if (customRules !== undefined && (
+        board !== 'custom' || !customRules || typeof customRules !== 'object' || Array.isArray(customRules)
+        || !Object.entries(customRules).every(([key, value]) => Object.hasOwn(customRuleOptions, key)
+          && typeof value === 'string' && Object.hasOwn(customRuleOptions[key], value))
+      )) {
+        roomError(400, 'CUSTOM_RULES', '请选择有效的自定义规则。');
+      }
       if (board === 'custom') {
-        const error = customLineupError(lineup);
+        const error = customLineupError(lineup, customRules?.victoryMode);
         if (error) roomError(400, 'LINEUP', error);
       } else if (typeof board !== 'string' || !Object.hasOwn(boards, board)) {
         roomError(400, 'BOARD', '请选择一个板子。');
@@ -339,6 +352,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         if (board === 'custom') {
           room.lineup = [...lineup];
           room.sheriffMode = sheriffMode ?? defaultSheriffMode;
+          room.customRules = { ...defaultCustomRules, ...customRules };
         }
         const result = await store.create(room, key, now);
         if (result) return { code: result.code };
@@ -348,8 +362,8 @@ export function createRooms(store, clock = Date.now, matchRules) {
 
     info(code) {
       return withRoom(code, (room, now) => {
-        const { board, state, full, lineup, sheriffMode } = publicStatus(room, now);
-        return { value: { code, board, state, full, lineup, sheriffMode } };
+        const { board, state, full, lineup, sheriffMode, customRules } = publicStatus(room, now);
+        return { value: { code, board, state, full, lineup, sheriffMode, customRules } };
       });
     },
 

@@ -1,6 +1,6 @@
 import {
-  boards, customBoardName, customLineupError, customRoleGroups, customRoles, defaultSheriffMode, nightSchedules,
-  presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
+  boards, customBoardName, customLineupError, customRoleGroups, customRoles, customRuleOptions, defaultCustomRules,
+  defaultSheriffMode, nightSchedules, presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
 } from './boards.js';
 import { choiceLabel, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
 
@@ -26,7 +26,7 @@ let board = 'mechanical';
 const customLineup = [];
 let customTab = 'wolves';
 let customQuery = '';
-let customSheriffMode = defaultSheriffMode;
+const customSettings = { ...defaultCustomRules, sheriffMode: defaultSheriffMode };
 let code;
 let lobby;
 let info;
@@ -156,15 +156,21 @@ function createScreen() {
 }
 
 const customTabs = { wolves: '狼人阵营', village: '好人阵营', other: '其他阵营', settings: '房间配置' };
+const roomSettings = {
+  victoryMode: { label: '获胜条件', options: customRuleOptions.victoryMode },
+  sheriffMode: { label: '警徽设置', options: sheriffModes },
+  firstNightKnife: { label: '首夜狼刀', options: customRuleOptions.firstNightKnife },
+  witchSelfSave: { label: '女巫自救', options: customRuleOptions.witchSelfSave },
+};
 
 function customOptions() {
   if (customTab === 'settings' && !customQuery) {
-    const fixedSettings = { 明牌暗牌: '暗牌', 首夜狼刀: '首夜有刀', 女巫自救: '不能自救', 观战设置: '满座后可观战' };
+    const fixedSettings = { 明牌暗牌: '暗牌', 观战设置: '满座后可观战' };
     return `<div class="custom-settings">
-      <div class="custom-setting"><span>获胜条件</span><span class="setting-value">屠边</span></div>
-      <button type="button" class="custom-setting custom-sheriff-row" data-action="sheriff-settings" aria-haspopup="dialog">
-        <span>警徽设置</span><span class="setting-value"><span id="sheriff-setting-value">${sheriffModes[customSheriffMode]}</span><span aria-hidden="true">›</span></span>
-      </button>
+      ${Object.entries(roomSettings).map(([key, { label, options }]) =>
+        `<button type="button" class="custom-setting custom-setting-button" data-action="room-setting" data-value="${key}" aria-haspopup="dialog">
+          <span>${label}</span><span class="setting-value"><span data-setting-value>${options[customSettings[key]]}</span><span aria-hidden="true">›</span></span>
+        </button>`).join('')}
       ${Object.entries(fixedSettings).map(([name, value]) => `<div class="custom-setting"><span>${name}</span><span class="setting-value">${value}</span></div>`).join('')}
     </div>`;
   }
@@ -185,7 +191,7 @@ function customOptions() {
 }
 
 function customPreview() {
-  const error = customLineupError(customLineup);
+  const error = customLineupError(customLineup, customSettings.victoryMode);
   return `${boardPreview('custom', customLineup)}
     ${error ? `<p class="custom-hint" role="status">${error}</p>` : ''}
     <div class="setup-actions">${button('确认创建', 'create-details', { variant: 'secondary', disabled: Boolean(error) })}</div>`;
@@ -303,20 +309,21 @@ function render() {
 
 function showDialog(title, body, appearance = '') {
   dialog.className = appearance;
-  const hasFooter = ['identity-dialog', 'ballot-dialog', 'sheriff-dialog'].includes(appearance);
+  const hasFooter = ['identity-dialog', 'ballot-dialog', 'settings-dialog'].includes(appearance);
   dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${hasFooter ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
   if (!dialog.open) dialog.showModal();
 }
 
-function showSheriffSettings() {
-  const options = Object.entries(sheriffModes).map(([mode, name]) => `<label class="sheriff-option">
-    <input type="radio" name="sheriffMode" value="${mode}"${mode === customSheriffMode ? ' checked autofocus' : ''}>
-    ${mode === 'none' ? name : `有警徽，${name}`}
+function showRoomSetting(key) {
+  const { label, options } = roomSettings[key];
+  const choices = Object.entries(options).map(([value, name]) => `<label class="settings-option">
+    <input type="radio" name="setting" value="${value}"${value === customSettings[key] ? ' checked autofocus' : ''}>
+    ${key === 'sheriffMode' && value !== 'none' ? `有警徽，${name}` : name}
   </label>`).join('');
-  showDialog('警徽设置', `<form data-form="sheriff-settings">
-    <fieldset class="sheriff-options" aria-labelledby="dialog-title">${options}</fieldset>
+  showDialog(label, `<form data-form="room-setting" data-key="${key}">
+    <fieldset class="settings-options" aria-labelledby="dialog-title">${choices}</fieldset>
     <div class="dialog-actions">${button('取消', 'close', { variant: 'secondary' })}<button class="button primary" type="submit">确定</button></div>
-  </form>`, 'sheriff-dialog');
+  </form>`, 'settings-dialog');
 }
 
 function confirm(title, body, action, label, value) {
@@ -541,9 +548,12 @@ async function submit(event) {
   event.preventDefault();
   if (waiting) return;
   const data = new FormData(form);
-  if (form.dataset.form === 'sheriff-settings') {
-    customSheriffMode = data.get('sheriffMode');
-    root.querySelector('#sheriff-setting-value').textContent = sheriffModes[customSheriffMode];
+  if (form.dataset.form === 'room-setting') {
+    const { key } = form.dataset;
+    const value = data.get('setting');
+    customSettings[key] = value;
+    root.querySelector(`[data-action="room-setting"][data-value="${key}"] [data-setting-value]`).textContent = roomSettings[key].options[value];
+    if (key === 'victoryMode') root.querySelector('.custom-preview').innerHTML = customPreview();
     return dialog.close();
   }
   if (form.dataset.form === 'match-choice') {
@@ -571,10 +581,11 @@ async function submit(event) {
   try {
     if (form.dataset.form === 'create') {
       const custom = screen === 'custom';
+      const { sheriffMode, ...customRules } = customSettings;
       const token = read(pendingCreateKey) ?? newToken();
       write(pendingCreateKey, token);
       const result = await request('/api/rooms', { name, board: custom ? 'custom' : board, tab, avatar,
-        ...(custom ? { lineup: customLineup, sheriffMode: customSheriffMode } : {}) }, token);
+        ...(custom ? { lineup: customLineup, sheriffMode, customRules } : {}) }, token);
       write(pendingCreateKey, null);
       write(credentialKey(result.code), token);
       if (period === epoch) go(`/room/${result.code}`);
@@ -689,9 +700,12 @@ function showHelp(tabName = 'basic') {
   const order = nightSchedules[boardId].filter(step => boardId !== 'custom' || step === 'knife' || selected.preview.includes(step))
     .map(step => nightNames[step] ?? roles[step].name).join(' → ');
   const election = (lobby?.sheriffMode ?? info?.sheriffMode) === 'none' ? '' : '警长竞选、';
+  const customNoKnife = (lobby?.customRules ?? info?.customRules)?.firstNightKnife === 'disabled';
+  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，跳过普通狼刀。</p>'
+    : boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : '';
   const pages = {
     basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
-    flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看并确认自己的身份。</li><li>房主开始游戏，仅轮到的玩家收到私密夜间操作。</li><li>进行${election}公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : ''}`,
+    flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看并确认自己的身份。</li><li>房主开始游戏，仅轮到的玩家收到私密夜间操作。</li><li>进行${election}公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${firstNightNote}`,
     faq: '<p>掉线后重新打开邀请链接或点「回到最近一局」。使用同一个浏览器可恢复座位、身份和操作进度。</p><p>若另一个页面正在使用本座位，可点「在此页继续」。</p>',
   };
   if (tabName === 'roles') {
@@ -776,9 +790,9 @@ async function click(event) {
       }
       return;
     }
-    case 'sheriff-settings': return showSheriffSettings();
+    case 'room-setting': return showRoomSetting(value);
     case 'create-details':
-      if (screen === 'custom' && customLineupError(customLineup)) return;
+      if (screen === 'custom' && customLineupError(customLineup, customSettings.victoryMode)) return;
       return showDialog('创建房间', profileForm('create', '确认创建'));
     case 'profile':
       return showDialog('编辑资料', profileForm('profile', '保存', lobby.self));
@@ -805,8 +819,10 @@ async function click(event) {
       catch (error) { if (error.name !== 'AbortError') await copyInvite(); }
       return;
     case 'config': {
-      const sheriff = lobby.board === 'custom' ? `<p class="config-sheriff">警徽设置：${sheriffModes[lobby.sheriffMode ?? defaultSheriffMode]}</p>` : '';
-      return showDialog('本局配置', boardPreview(lobby.board, lobby.lineup, true) + sheriff);
+      const settings = { ...defaultCustomRules, ...lobby.customRules, sheriffMode: lobby.sheriffMode ?? defaultSheriffMode };
+      const rules = lobby.board === 'custom' ? `<dl class="config-rules">${Object.entries(roomSettings).map(([key, { label, options }]) =>
+        `<div class="custom-setting"><dt>${label}</dt><dd class="setting-value">${options[settings[key]]}</dd></div>`).join('')}</dl>` : '';
+      return showDialog('本局配置', boardPreview(lobby.board, lobby.lineup, true) + rules);
     }
     case 'seat':
       return Number(value) === lobby.self.seat ? action('stand') : action('seat', { seat: Number(value) });

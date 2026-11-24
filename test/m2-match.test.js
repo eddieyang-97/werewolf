@@ -86,6 +86,103 @@ function playAction(room, guest, kind, choice) {
   choose(room, guest, action, choice);
 }
 
+test('late wolves can still see their Night 1 teammates privately after recognition advances play', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'wolfKing', 'villager', 'villager']);
+  room.customRules = { victoryMode: 'town', firstNightKnife: 'disabled' };
+  room.sheriffMode = 'none';
+  const [wolf, king, host] = room.guests;
+  room.hostId = host.id;
+  startMatch(room, matchRules);
+
+  playAction(room, wolf, 'night-action', 'confirm');
+  const lateView = controls(room, king);
+  assert.equal(lateView.phase, 'dawn');
+  assert.deepEqual(lateView.self.teammates, [wolf.seat]);
+  assert.equal(lateView.self.nightAction, undefined);
+
+  playAction(room, host, 'publish-night');
+  assert.deepEqual(controls(room, king).self.teammates, [wolf.seat]);
+  assert.equal(controls(room, host).self.teammates, undefined);
+  assert.equal(controllerView(room.match, null, false, matchRules).self, undefined);
+
+  abandonMatch(room.match);
+  assert.equal(controls(room, king).self.teammates, undefined);
+});
+
+test('custom no-knife Night 1 preserves private wolf recognition and Witch self-save works on a later night', () => {
+  const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'witch', 'villager', 'villager']);
+  room.customRules = { firstNightKnife: 'disabled', witchSelfSave: 'allowed' };
+  room.sheriffMode = 'none';
+  const [king, wolf, witch, host] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  const { match } = room;
+  const recognition = controls(room, king);
+  assert.deepEqual(recognition.self.teammates, [wolf.seat]);
+  assert.deepEqual(controls(room, wolf).self.teammates, [king.seat]);
+  assert.equal(controls(room, host).self.teammates, undefined);
+  assert.equal(controls(room, witch).actions, undefined);
+  assert.equal(executeMatchChoice(room, king, { matchId: recognition.matchId, window: recognition.window,
+    kind: 'night-action', choice: witch.seat }, matchRules), false);
+  play(wolf, 'night-action', 'confirm');
+  const firstNight = controls(room, witch);
+  assert.equal(firstNight.self.wolfTarget, null);
+  assert.ok(firstNight.actions[0].options.includes(`poison:${wolf.seat}`));
+  assert.ok(!firstNight.actions[0].options.includes('save'));
+  play(witch, 'night-action', null);
+  play(host, 'publish-night');
+  play(king, 'self-destruct');
+  play(host, 'next-night');
+
+  assert.equal(controls(room, wolf).actions[0].action, 'knife');
+  play(wolf, 'night-action', witch.seat);
+  const targeted = controls(room, witch);
+  assert.equal(targeted.self.wolfTarget, witch.seat);
+  assert.ok(targeted.actions[0].options.includes('save'));
+  play(witch, 'night-action', 'save');
+  assert.deepEqual(match.day.deaths, []);
+  assert.equal(playerAt(match, witch.seat).used.antidote, true);
+  assert.equal(playerAt(match, witch.seat).used.poison, undefined);
+
+  play(host, 'publish-night');
+  while (match.phase === 'discussion') play(host, 'finish-speech');
+  play(host, 'open-exile');
+  for (const guest of room.guests.filter(guest => guest !== king)) play(guest, 'vote', null);
+  play(host, 'next-night');
+  play(wolf, 'night-action', witch.seat);
+  const spent = controls(room, witch);
+  assert.equal(spent.self.wolfTarget, undefined);
+  assert.ok(!spent.actions[0].options.includes('save'));
+  assert.equal(executeMatchChoice(room, witch, { matchId: spent.matchId, window: spent.window,
+    kind: 'night-action', choice: 'save' }, matchRules), false);
+  play(witch, 'night-action', null);
+  assert.equal(match.winner, 'wolves');
+});
+
+test('custom town elimination continues after the only god dies and ends on the last good death', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'witch', 'mixed']);
+  room.customRules = { victoryMode: 'town' };
+  room.sheriffMode = 'none';
+  const [wolf, witch, mixed] = room.guests;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  play(mixed, 'night-action', wolf.seat);
+  play(wolf, 'night-action', witch.seat);
+  play(witch, 'night-action', null);
+  assert.equal(room.match.winner, undefined);
+  play(wolf, 'publish-night');
+  play(wolf, 'finish-speech');
+  while (room.match.phase === 'discussion') play(wolf, 'finish-speech');
+  play(wolf, 'open-exile');
+  play(wolf, 'vote', null);
+  play(mixed, 'vote', null);
+  play(wolf, 'next-night');
+  play(wolf, 'night-action', mixed.seat);
+  assert.equal(room.match.winner, 'wolves');
+  assert.equal(room.match.phase, 'finished');
+});
+
 for (const sheriffMode of ['double', 'single']) {
   test(`${sheriffMode} badge mode applies its self-destruct limit across D1 and D2`, () => {
     const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'wolf', 'seer', 'villager', 'villager', 'villager']);

@@ -22,6 +22,12 @@ export const presetSeatCount = 12;
 export const customBoardName = '自定义配置';
 export const defaultSheriffMode = 'double';
 export const sheriffModes = { double: '双爆吞警徽', single: '单爆吞警徽', none: '无警徽' };
+export const customRuleOptions = {
+  victoryMode: { side: '屠边', town: '屠城' },
+  firstNightKnife: { enabled: '首夜有刀', disabled: '首夜无刀' },
+  witchSelfSave: { forbidden: '不能自救', allowed: '可以自救' },
+};
+export const defaultCustomRules = { victoryMode: 'side', firstNightKnife: 'enabled', witchSelfSave: 'forbidden' };
 export const customRoleGroups = {
   wolves: ['wolf', 'wolfKing'],
   village: ['villager', 'seer', 'witch', 'hunter', 'fool', 'guard', 'medium', 'dreamer', 'poisoner', 'masked'],
@@ -33,8 +39,9 @@ export function repeatableRole(role) {
   return role === 'wolf' || role === 'villager';
 }
 
-export function customLineupError(lineup) {
+export function customLineupError(lineup, victoryMode = defaultCustomRules.victoryMode) {
   if (!Array.isArray(lineup)) return '请选择自定义角色。';
+  if (lineup.length < 3) return '自定义配置至少需要 3 人。';
   if (lineup.length > presetSeatCount) return `自定义配置最多支持 ${presetSeatCount} 人。`;
   const counts = new Set();
   for (const role of lineup) {
@@ -45,7 +52,12 @@ export function customLineupError(lineup) {
   if (counts.has('guard') && counts.has('dreamer')) return '守卫和摄梦人不能同时入局。';
   const hasWolf = customRoleGroups.wolves.some(role => counts.has(role));
   const hasGod = customRoleGroups.village.some(role => role !== 'villager' && counts.has(role));
-  if (!hasWolf || !hasGod || !(counts.has('villager') || counts.has('mixed'))) return '至少选择一张狼牌、一张神牌和一张民牌。';
+  const hasVillager = counts.has('villager') || counts.has('mixed');
+  if (victoryMode === 'town') {
+    if (!hasWolf || !(hasGod || hasVillager)) return '屠城至少需要一张狼牌和一张好人牌。';
+  } else if (!hasWolf || !hasGod || !hasVillager) {
+    return '屠边至少需要一张狼牌、一张神牌和一张民牌。';
+  }
   return '';
 }
 

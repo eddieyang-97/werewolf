@@ -108,6 +108,19 @@ test('simultaneous final wolf and final power death yields an immediate wolf vic
   assert.equal(match.phase, 'finished');
 });
 
+test('town elimination gives wolf victory precedence only if all good seats also leave', () => {
+  for (const lastGoodDies of [false, true]) {
+    const match = setup('custom', ['wolf', 'witch', 'villager']);
+    match.customRules = { victoryMode: 'town' };
+    match.round = 2;
+    formalDeaths(match, [{ seat: 3, cause: 'exile', time: 'day' }]);
+    match.night = { knife: lastGoodDies ? 2 : null, poisons: [{ source: 2, target: 1 }] };
+    settleNightDeaths(match);
+    assert.equal(match.winner, lastGoodDies ? 'wolves' : 'village');
+    assert.equal(match.phase, 'finished');
+  }
+});
+
 test('Mixed Blood follows its model while still counting towards the civilian edge', () => {
   const match = setup('classic', ['wolf', 'wolf', 'wolf', 'wolf', 'seer', 'witch', 'hunter', 'fool', 'villager', 'villager', 'villager', 'mixed']);
   const mixed = playerAt(match, 12);
