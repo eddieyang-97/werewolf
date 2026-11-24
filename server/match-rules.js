@@ -1,4 +1,4 @@
-import { playerAt } from './match-state.js';
+import { isPackWolf, playerAt } from './match-state.js';
 import { nightSchedules } from '../public/boards.js';
 
 function witchChoices(match, player) {
@@ -14,7 +14,7 @@ export const matchRules = {
   nightChoices(match, player, kind) {
     const { alive } = match.night;
     switch (kind) {
-      case 'knife': return [null, ...alive];
+      case 'knife': return [null, ...alive.filter(seat => playerAt(match, seat).role !== 'wolfKing')];
       case 'mixed':
       case 'seer': return alive.filter(seat => seat !== player.seat);
       case 'witch': return witchChoices(match, player);
@@ -31,7 +31,7 @@ export const matchRules = {
         player.model = choice;
         break;
       case 'seer':
-        player.privateEvents.push({ kind, round: match.round, seat: choice, team: playerAt(match, choice).role === 'wolf' ? 'wolves' : 'village' });
+        player.privateEvents.push({ kind, round: match.round, seat: choice, team: isPackWolf(playerAt(match, choice)) ? 'wolves' : 'village' });
         break;
       case 'witch':
         if (choice === 'save') {

@@ -34,6 +34,7 @@ const labels = {
 };
 
 export function matchLabel(control) {
+  if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }
 
@@ -56,7 +57,7 @@ export function timerText(milliseconds) {
 }
 
 export function matchPanel(match, button, connected) {
-  const { phase, round, speaker, sheriff, self, timer, actions = [], voteProgress } = match;
+  const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
   const nightInfo = self.teammates?.length ? `<p>狼队同伴：${self.teammates.join('、')}号</p>` : '';

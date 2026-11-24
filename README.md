@@ -1,6 +1,6 @@
 # Werewolf
 
-Mobile Werewolf for friends. Create an account-free room, invite friends, and play any of the three 12-player presets from the first night through rematch. Each phone receives its own roles and actions. Players can reconnect to their seat and view completed ballots in the match history. See [requirements](REQUIREMENTS.md) for the presets and rules.
+Mobile Werewolf for friends. Create an account-free room, invite friends, and play a 12-player preset or a 3–12-player custom lineup from the first night through rematch. Each phone receives its own roles and actions. Players can reconnect to their seat and view completed ballots in the match history. See [requirements](REQUIREMENTS.md) for the lineups and rules.
 
 ## Local development
 
@@ -18,7 +18,7 @@ Open `http://localhost:3000`. The server uses `.data/rooms.sqlite` by default. S
 
 `npm test` runs the rule and SQLite HTTP tests. To iterate on the room tests, run `node --test test/m1.test.js`. Independent cases run in parallel with ephemeral HTTP ports and separate stores.
 
-To also run the shared deal, concurrency, and restart scenarios against PostgreSQL, start a disposable local database. The test user needs permission to create schemas. Each scenario creates and removes its own schema, including when multiple suites run against the same test database.
+To also run the shared deal, concurrency, restart, custom lineup, and spectator handoff scenarios against PostgreSQL, start a disposable local database. The test user needs permission to create schemas. Each scenario creates and removes its own schema, including when multiple suites run against the same test database.
 
 ```sh
 docker run --rm -d --name werewolf-test-postgres -p 127.0.0.1:55432:5432 -e POSTGRES_USER=werewolf -e POSTGRES_PASSWORD=werewolf_test -e POSTGRES_DB=werewolf_test postgres:18

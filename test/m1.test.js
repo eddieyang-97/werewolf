@@ -382,4 +382,251 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(knife.actions[0].action, 'knife');
     assert.notEqual(knife.window, pending.window);
   }, { postgres: true, persistent: true });
+
+  roomTest('custom room capacity and private deal survive restart and rematch', async start => {
+    const clock = () => 10_000;
+    let base = await start({ clock, matchRules });
+    const host = browser();
+    const create = { tab: host.tab, board: 'custom', name: '房主' };
+    const lineup = ['villager', 'villager', 'wolf', 'wolfKing', 'seer'];
+    assert.equal((await fetch(`${base}/create/custom`)).status, 200);
+    for (const invalid of [null, [], ['wolf', 'seer', 'seer', 'villager'], ['wolf', 'seer', 'thief', 'villager'],
+      ['wolf', 'villager'], ['wolf', 'guard', 'dreamer', 'villager'], [...lineup, ...Array(8).fill('villager')]]) {
+      const result = await json(base, '/api/rooms', host, { ...create, lineup: invalid }, 400);
+      assert.equal(result.code, 'LINEUP');
+    }
+    for (const sheriffMode of [null, 'invalid', 'toString']) {
+      const result = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode }, 400);
+      assert.equal(result.code, 'SHERIFF_MODE');
+    }
+    const defaultHost = browser();
+    const defaultRoom = await json(base, '/api/rooms', defaultHost, { ...create, tab: defaultHost.tab, lineup }, 201);
+    assert.equal((await json(base, `/api/rooms/${defaultRoom.code}`)).sheriffMode, 'double');
+    const { code } = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode: 'none' }, 201);
+    const retry = await json(base, '/api/rooms', host, { ...create, lineup: ['wolf', 'seer', 'villager'], sheriffMode: 'single' }, 201);
+    assert.equal(retry.code, code);
+    const status = await json(base, `/api/rooms/${code}`);
+    assert.deepEqual(status.lineup, lineup);
+    assert.equal(status.sheriffMode, 'none');
+    assert.equal(status.full, false);
+    assert.equal((await roomApi(base, code, host, 'resume')).seats.length, lineup.length);
+    await action(base, code, host, { type: 'deal' }, 409);
+    await action(base, code, host, { type: 'seat', seat: lineup.length + 1 }, 400);
+
+    const guests = Array.from({ length: lineup.length - 1 }, browser);
+    for (const [index, guest] of guests.entries()) {
+      await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
+      await action(base, code, guest, { type: 'seat', seat: index + 2 });
+    }
+    assert.equal((await json(base, `/api/rooms/${code}`)).full, true);
+    assert.equal((await roomApi(base, code, browser(), 'join', { name: '访客' }, 409)).code, 'FULL');
+    const spectator = browser();
+    assert.equal((await roomApi(base, code, spectator, 'join', { name: '观众', spectate: true })).self.spectator, true);
+    const deal = { type: 'deal', id: randomUUID() };
+    await action(base, code, host, deal);
+    const participants = [host, ...guests];
+    const assignments = await Promise.all(participants.map(async participant => {
+      const { room, assignment } = await action(base, code, participant, { type: 'reveal' });
+      assert.ok(room.seats.every(seat => !Object.hasOwn(seat, 'assignment')));
+      await action(base, code, participant, { type: 'acknowledge' });
+      return assignment;
+    }));
+    assert.deepEqual(assignments.map(card => card.role).sort(), [...lineup].sort());
+    await action(base, code, spectator, { type: 'reveal' }, 403);
+    base = await start({ clock, matchRules });
+    const resumed = await roomApi(base, code, host, 'resume');
+    assert.deepEqual(resumed.lineup, lineup);
+    assert.equal(resumed.sheriffMode, 'none');
+    assert.equal(resumed.canStart, true);
+    assert.deepEqual((await action(base, code, host, { type: 'reveal' })).assignment, assignments[0]);
+    await action(base, code, host, deal);
+    await action(base, code, host, { type: 'match-start' });
+    const kingIndex = assignments.findIndex(card => card.role === 'wolfKing');
+    const kingView = await roomApi(base, code, participants[kingIndex], 'sync');
+    assert.equal(kingView.match.actions[0].action, 'knife');
+    assert.ok(!kingView.match.actions[0].options.includes(kingIndex + 1));
+    await action(base, code, participants[kingIndex], { type: 'match-choice', matchId: kingView.match.matchId,
+      window: kingView.match.window, kind: 'night-action', choice: null });
+    const seer = participants[assignments.findIndex(card => card.role === 'seer')];
+    const seerView = (await roomApi(base, code, seer, 'sync')).match;
+    await action(base, code, seer, { type: 'match-choice', matchId: seerView.matchId, window: seerView.window,
+      kind: 'night-action', choice: kingIndex + 1 });
+    assert.equal((await roomApi(base, code, spectator, 'sync')).match.self, undefined);
+    const hostMatch = (await roomApi(base, code, host, 'sync')).match;
+    assert.deepEqual(hostMatch.actions.map(item => item.kind).filter(kind => kind !== 'self-destruct'), ['publish-night']);
+    const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });
+    const { matchId, window } = abandoned.room.match;
+    const rematch = await action(base, code, host, { type: 'match-choice', matchId, window, kind: 'rematch' });
+    assert.deepEqual(rematch.room.lineup, lineup);
+    assert.equal(rematch.room.sheriffMode, 'none');
+    assert.equal(rematch.room.seats.length, lineup.length);
+    assert.equal(rematch.room.canDeal, true);
+  }, { postgres: true, persistent: true });
+
+  roomTest('spectators survive the deal and a replacement reviews the existing role before kickoff', async start => {
+    const base = await start({ matchRules });
+    const { code, host } = await setup(base, 'classic');
+    const spectator = browser();
+    const admission = { name: '旁观者', spectate: true };
+    assert.equal((await roomApi(base, code, spectator, 'join', admission, 409)).code, 'SEATS_AVAILABLE');
+    const players = await fill(base, code, host);
+    const initial = await roomApi(base, code, host, 'sync');
+    const watching = await roomApi(base, code, spectator, 'join', admission);
+    assert.equal(watching.self.seat, null);
+    assert.equal(watching.self.spectator, true);
+    assert.deepEqual(watching.seats, initial.seats);
+    assert.equal(watching.spectatorCount, 1);
+    assert.equal((await action(base, code, spectator, { type: 'seat', seat: 2 }, 403)).code, 'SPECTATOR_ONLY');
+    assert.equal((await roomApi(base, code, players[1], 'join', admission)).self.seat, 2);
+    await action(base, code, host, { type: 'deal' });
+    const assignments = await Promise.all(players.map(async player => {
+      const { assignment } = await action(base, code, player, { type: 'reveal' });
+      await action(base, code, player, { type: 'acknowledge' });
+      return assignment;
+    }));
+    assert.equal((await roomApi(base, code, spectator, 'sync')).state, 'ready');
+    await roomApi(base, code, players[1], 'disconnect');
+    const target = initial.seats[1].id;
+    await action(base, code, spectator, { type: 'replacement-request', target });
+    const { replacementRequests: [request] } = await roomApi(base, code, host, 'sync');
+    const approval = await action(base, code, host, { type: 'replacement-approve', target: request.id });
+    assert.equal(approval.room.state, 'dealt');
+    assert.equal(approval.room.seats[1].id, watching.self.id);
+    assert.equal((await action(base, code, spectator, { type: 'acknowledge' }, 409)).code, 'NOT_REVEALED');
+    assert.deepEqual((await action(base, code, spectator, { type: 'reveal' })).assignment, assignments[1]);
+    await action(base, code, spectator, { type: 'acknowledge' });
+    await action(base, code, host, { type: 'match-start' });
+    assert.equal((await roomApi(base, code, players[1], 'resume')).self.spectator, true);
+  });
+
+  roomTest('host approval atomically hands off an offline seat and its private match action', async start => {
+    let now = Date.now();
+    const options = { matchRules, clock: () => now };
+    let base = await start(options);
+    const { code, host } = await setup(base, 'mechanical');
+    const players = await fill(base, code, host);
+    const act = (player, type, details = {}, status = 200) => action(base, code, player, { type, ...details }, status);
+    const sync = player => roomApi(base, code, player, 'sync');
+    const disconnect = player => roomApi(base, code, player, 'disconnect');
+    const choose = (player, match, kind, choice) => act(player, 'match-choice', {
+      kind, choice, matchId: match.matchId, window: match.window,
+    });
+    await act(host, 'deal');
+    const assignments = await Promise.all(players.map(async player => {
+      const { assignment } = await act(player, 'reveal');
+      await act(player, 'acknowledge');
+      return assignment;
+    }));
+    await act(host, 'match-start');
+    const guard = assignments.findIndex(card => card.role === 'guard');
+    if (guard === 0) await choose(host, (await sync(host)).match, 'night-action', null);
+    const index = guard || assignments.findIndex(card => card.role === 'wolf');
+    const original = players[index];
+    const privateState = await sync(original);
+    const pending = privateState.match;
+    const target = privateState.self.id;
+    assert.ok(pending.actions.some(entry => entry.kind === 'night-action'));
+
+    const [watcher, alternate] = [browser(), browser()];
+    const [watching, otherWatching] = await Promise.all([watcher, alternate].map((person, i) =>
+      roomApi(base, code, person, 'join', { name: `观战${i + 1}`, spectate: true })));
+    const { self, actions, window, matchId, ...publicMatch } = pending;
+    assert.ok(self);
+    assert.deepEqual(watching.match, publicMatch);
+    assert.deepEqual(watching.seats, privateState.seats);
+    for (const type of ['reveal', 'avatar', 'match-choice', 'replacement-approve']) {
+      assert.equal((await act(watcher, type, {}, 403)).code, 'SPECTATOR_ONLY');
+    }
+    assert.equal((await act(watcher, 'replacement-request', { target }, 409)).code, 'REPLACEMENT_UNAVAILABLE');
+    await disconnect(host);
+    assert.equal((await act(watcher, 'replacement-request', { target: watching.seats[0].id }, 409)).code, 'REPLACEMENT_UNAVAILABLE');
+
+    now += 15_001;
+    await Promise.all(players.filter(player => player !== original).map(sync));
+    assert.equal((await sync(watcher)).seats[index].connected, false);
+    await sync(alternate);
+    const request = person => act(person, 'replacement-request', { target });
+    assert.equal((await request(watcher)).room.self.replacementSeat, index + 1);
+    assert.equal((await sync(alternate)).replacementRequests, undefined);
+    const [stale] = (await sync(host)).replacementRequests;
+    assert.equal((await act(players.find((player, i) => i !== 0 && i !== index), 'replacement-approve', { target: stale.id }, 403)).code, 'HOST_ONLY');
+    await roomApi(base, code, original, 'resume');
+    assert.equal((await sync(watcher)).self.replacementSeat, null);
+    await disconnect(original);
+    assert.equal((await act(host, 'replacement-approve', { target: stale.id }, 409)).code, 'REPLACEMENT_UNAVAILABLE');
+    await request(watcher);
+    await act(watcher, 'replacement-cancel');
+    assert.deepEqual((await sync(host)).replacementRequests, []);
+    await Promise.all([request(watcher), request(alternate)]);
+    const candidates = (await sync(host)).replacementRequests;
+    await disconnect(alternate);
+    const unavailable = candidates.find(entry => entry.name === otherWatching.self.name);
+    assert.equal((await act(host, 'replacement-approve', { target: unavailable.id }, 409)).code, 'REPLACEMENT_UNAVAILABLE');
+    await sync(alternate);
+
+    base = await start(options);
+    const approvals = candidates.map(entry => ({ id: randomUUID(), type: 'replacement-approve', target: entry.id }));
+    const outcomes = await Promise.all(approvals.map(command => action(base, code, host, command, [200, 409])));
+    const accepted = outcomes.findIndex(result => result.room);
+    assert.notEqual(accepted, -1);
+    assert.equal(outcomes[1 - accepted].code, 'REPLACEMENT_UNAVAILABLE');
+    const promoted = candidates[accepted].name === watching.self.name ? watcher : alternate;
+    const remaining = promoted === watcher ? alternate : watcher;
+    const approval = await action(base, code, host, approvals[accepted]);
+    assert.equal(approval.room.seats[index].name, candidates[accepted].name);
+    assert.deepEqual(approval.room.replacementRequests, []);
+    assert.equal(approval.room.match.self.nightAction, undefined);
+
+    const old = await roomApi(base, code, original, 'resume');
+    assert.equal(old.self.seat, null);
+    assert.equal(old.self.spectator, true);
+    assert.equal(old.self.canRequestReplacement, false);
+    assert.deepEqual(old.match, publicMatch);
+    assert.equal((await act(original, 'reveal', {}, 403)).code, 'SPECTATOR_ONLY');
+    assert.equal((await act(original, 'match-choice', { matchId, window, kind: 'night-action', choice: null }, 403)).code, 'SPECTATOR_ONLY');
+    assert.equal((await act(original, 'replacement-request', { target }, 409)).code, 'REPLACEMENT_UNAVAILABLE');
+    assert.deepEqual((await sync(remaining)).match, publicMatch);
+
+    base = await start(options);
+    const resumed = await roomApi(base, code, promoted, 'resume');
+    assert.equal(resumed.self.seat, index + 1);
+    assert.deepEqual(resumed.match, pending);
+    assert.deepEqual((await act(promoted, 'reveal')).assignment, assignments[index]);
+    await choose(promoted, resumed.match, 'night-action', null);
+    players[index] = promoted;
+
+    while ((await sync(host)).match.phase === 'night') {
+      const views = await Promise.all(players.map(sync));
+      const actor = views.findIndex(view => view.match.actions?.some(entry => entry.kind === 'night-action'));
+      assert.notEqual(actor, -1);
+      const { match } = views[actor];
+      const { options: choices } = match.actions.find(entry => entry.kind === 'night-action');
+      await choose(players[actor], match, 'night-action', choices.includes(null) ? null : choices[0]);
+    }
+    await choose(host, (await sync(host)).match, 'open-election');
+    for (const [i, player] of players.entries()) {
+      await choose(player, (await sync(player)).match, 'candidacy', i < 2);
+    }
+    for (let i = 0; i < 2; i++) await choose(host, (await sync(host)).match, 'finish-speech');
+    await choose(players[2], (await sync(players[2])).match, 'vote', 1);
+    const duringVote = (await sync(remaining)).match;
+    assert.equal(duringVote.phase, 'sheriff-vote');
+    assert.equal(duringVote.voteProgress, undefined);
+    assert.equal(duringVote.actions, undefined);
+    assert.ok(duringVote.history.every(event => !event.ballot));
+    for (const player of players.slice(3)) await choose(player, (await sync(player)).match, 'vote', null);
+    const published = (await sync(remaining)).match.history.find(event => event.kind === 'sheriff-vote');
+    assert.deepEqual(published.ballot.groups, [{ seat: 1, count: 1, voters: [3] }]);
+    assert.equal(published.ballot.abstained.length, 9);
+
+    const { match: { canAbandon } } = await sync(host);
+    const abandoned = await act(host, 'match-abandon', { matchId: canAbandon });
+    const afterFinish = await sync(remaining);
+    assert.equal(afterFinish.match.winner, 'abandoned');
+    assert.equal(afterFinish.match.roster, undefined);
+    assert.equal(afterFinish.self.canRequestReplacement, false);
+    await choose(host, abandoned.room.match, 'rematch');
+    assert.equal((await sync(promoted)).self.seat, index + 1);
+    assert.equal((await sync(original)).self.canRequestReplacement, true);
+  }, { postgres: true, persistent: true });
 });

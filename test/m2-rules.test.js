@@ -144,6 +144,7 @@ test('sheriff PK reverses the original order and differentiates first and runoff
 
 test('sheriff competition can be postponed only once', () => {
   const match = setup();
+  delete match.sheriffMode; // Matches saved before the room setting still use the default.
   dawn(match);
   startElection(match);
   const election = match.election;
@@ -158,6 +159,25 @@ test('sheriff competition can be postponed only once', () => {
   interruptElection(match, 2);
   assert.equal(electionDue(match), false);
   assert.equal(match.sheriff, null);
+});
+
+test('single self-destruct removes the badge even when one runoff candidate remains', () => {
+  const match = setup();
+  match.sheriffMode = 'single';
+  dawn(match);
+  startElection(match);
+  match.election.signups = Object.fromEntries(match.players.map(({ seat }) => [seat, seat === 1 || seat === 5]));
+  collectCandidacies(match);
+  advanceElectionSpeech(match);
+  advanceElectionSpeech(match);
+  match.election.ballot.votes = { 6: 1, 7: 5 };
+  closeElectionVote(match);
+  assert.equal(match.phase, 'sheriff-runoff-speech');
+  selfDestruct(match, playerAt(match, 1));
+  assert.equal(match.sheriff, null);
+  assert.equal(match.election.status, 'completed');
+  assert.equal(match.phase, 'next-night');
+  assert.equal(match.history.find(event => event.kind === 'sheriff').seat, null);
 });
 
 test('exile vote tie enters reverse-order PK and a second tie leaves everyone in', () => {
