@@ -1,6 +1,6 @@
 export const roles = {
   wolf: { name: '狼人', description: '与其他狼人合作。入夜后，狼队共同选择行动目标。' },
-  wolfKing: { name: '狼王', art: 'wolf', description: '与小狼一起行动。白天被放逐后，若对局仍在进行，可开枪带走一名玩家。自爆、被毒、被梦或被枪带走时不能开枪。狼队的普通狼刀不能选择你。' },
+  wolfKing: { name: '狼王', art: 'wolf-king', description: '与小狼一起行动。白天被放逐后，若对局仍在进行，可开枪带走一名玩家。自爆、被毒、被梦或被枪带走时不能开枪。狼队的普通狼刀不能选择你。' },
   mechanical: { name: '机械狼', description: '可以学习一名玩家的身份，并按本局规则使用对应能力。' },
   thief: { name: '盗宝大师', art: 'mechanical', description: '持有狼、神、民三张牌。正式对局开始后，按规则在神、民身份之间切换。' },
   villager: { name: '村民', description: '通过白天的讨论和投票帮助好人找出狼人。' },

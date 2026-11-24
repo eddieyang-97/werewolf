@@ -85,9 +85,6 @@ function button(label, action, options = {}) {
 
 function roleMark(roleId) {
   const art = roles[roleId].art ?? roleId;
-  if (roleId === 'wolfKing') {
-    return `<span class="mark wolf-king-mark" aria-hidden="true"><img src="/art/${art}.png" alt=""><span>王</span></span>`;
-  }
   return `<img class="mark" src="/art/${art}.png" alt="" width="75" height="75">`;
 }
 
