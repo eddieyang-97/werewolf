@@ -137,7 +137,7 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 - The mechanical wolf may learn once per game, on any night, targeting a player who was still in play at night start. Death of that target during the learning night does not invalidate learning; a player already out before the night cannot be learned. The copied identity is fixed. Copied night abilities start the next night, except the copied Hunter gun is effective from the immediately following day and has a night gun-status confirmation.
 - Medium inspection of an unlearned mechanical wolf returns 双爪; ordinary small wolves and the double-knife identity return 单爪. After learning, return the corresponding copied/mechanical identity result instead of 双爪. Do not reveal what the mechanical wolf learned to small wolves merely because they share a faction; public knowledge of mechanical type is symmetric between small wolves and good players.
 - Mechanical Guard may protect self and cannot guard the same player on consecutive nights. It can block poison and reflects blocked poison onto the Witch, killing her. This differs from ordinary Guard.
-- Mechanical Witch has one poison that can be saved for a later night. Mechanical double knife has one storable extra knife, usable only when the mechanical wolf has ordinary knife ownership that night. It penetrates all protection and may target the same player as the ordinary knife. The source of this copied ability still requires an explicit ruling.
+- Mechanical Witch has one poison that can be saved for a later night. When the mechanical wolf learns a 小狼 who was in play at the start of the night, it gains one storable extra knife. It can use the extra knife on a later night when it starts the night with ordinary wolf-knife ownership. The extra knife penetrates all protection and may target the same player as the ordinary knife.
 
 #### 盗宝大师 (§§5.5–5.6, 6.3)
 
@@ -163,7 +163,7 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 
 ### Remaining gameplay rulings
 
-- Confirm the mechanical double-knife learning source and full copied-ability/inspection-result mapping, including copied Hunter gun-status timing and eligibility where not specified. Define allocation and copy interactions before adding a wolf gun to a preset.
+- Confirm the remaining copied-ability and inspection-result mappings, including copied Hunter gun-status timing and eligibility where not specified. Define allocation and copy interactions before adding a wolf gun to a preset.
 - Define the pending/formal death boundary around D1 election and 自爆吞毒, including which pending N1 deaths permit an intervening self-destruct. Confirm the no-night-death sheriff direction convention and mixed lethal causes affecting gun eligibility if reachable.
 - Confirm role target and skip restrictions, exact mechanical Guard empty-guard behavior, and other unresolved action details before changing them.
 
@@ -175,7 +175,7 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 - Verify sheriff candidacy, vote progress, and that results stay unpublished while ballots are outstanding.
 - Test a first-vote tie and runoff, sheriff election interruption, badge transfer, N1 last words, and Hunter timing. Exercise immediate night victory and simultaneous victory conditions. Verify 混血儿 affiliation and the 白痴／白神 exile each count correctly.
 - Exercise the relevant shared rule boundaries: election withdrawal/runoff eligibility and second ties, sheriff weighting, self-destruct windows and pending-death handling, death/shot/badge ordering, and hidden information timing.
-- For 机械狼通灵师, test ordinary Guard empty-guard reset, same-guard/same-save death and Hunter eligibility, mechanical learning timing and visibility, reflected poison, night-start knife inheritance and the extra-knife restriction once its learning source is agreed.
+- For 机械狼通灵师, test ordinary Guard empty-guard reset, same-guard/same-save death and Hunter eligibility, mechanical learning timing and visibility, reflected poison, night-start knife inheritance and that learning a 小狼 grants one extra knife usable only on a later night with ordinary knife ownership at night start.
 - For 盗宝大师, test both starting identities, mandatory switching and persistent skill resources, disguise inspections, N1 no-knife and subsequent inheritance, dream protection/dragging/consecutive-use death across switching, and good 蒙面 delayed departure. Verify that a good-side win after the last wolf self-destructs before dawn publication cancels the pending departure. Verify that the excluded Thief-as-蒙面 state cannot arise.
 
 ## M3. Spectating and seat replacement
