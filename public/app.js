@@ -1,4 +1,7 @@
-import { boards, nightSchedules, roles, thiefDraw } from './boards.js';
+import {
+  boards, customBoardName, customLineupError, customRoleGroups, customRoles, nightSchedules, presetSeatCount,
+  repeatableRole, roles, thiefDraw,
+} from './boards.js';
 import { choiceLabel, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
 
 const root = document.querySelector('#app');
@@ -20,6 +23,9 @@ const jpegPrefix = 'data:image/jpeg;base64,';
 
 let screen = 'home';
 let board = 'mechanical';
+const customLineup = [];
+let customTab = 'wolves';
+let customQuery = '';
 let code;
 let lobby;
 let info;
@@ -78,6 +84,9 @@ function button(label, action, options = {}) {
 
 function roleMark(roleId) {
   const art = roles[roleId].art ?? roleId;
+  if (roleId === 'wolfKing') {
+    return `<span class="mark wolf-king-mark" aria-hidden="true"><img src="/art/${art}.png" alt=""><span>王</span></span>`;
+  }
   return `<img class="mark" src="/art/${art}.png" alt="" width="75" height="75">`;
 }
 
@@ -88,12 +97,16 @@ function roleTile(roleId) {
   return `<div class="role-tile">${roleMark(roleId)}<span>${roles[roleId].name}</span></div>`;
 }
 
-function boardPreview(boardId, showName = false) {
-  const selected = boards[boardId];
+function boardDetails(boardId, lineup) {
+  return boardId === 'custom' ? { name: customBoardName, preview: lineup } : boards[boardId];
+}
+
+function boardPreview(boardId, lineup, showName = false) {
+  const selected = boardDetails(boardId, lineup);
   return `<div class="board-preview">
     ${showName ? `<h3 class="board-name">${selected.name}</h3>` : ''}
-    <p class="player-count">总玩家数：<strong>12人</strong></p>
-    <div class="role-grid">${selected.preview.map(roleTile).join('')}</div>
+    <p class="player-count" aria-live="polite">总玩家数：<strong>${selected.preview.length}人</strong></p>
+    ${selected.preview.length ? `<div class="role-grid">${selected.preview.map(roleTile).join('')}</div>` : ''}
     ${boardId === 'thief' ? `<p class="draw-note">盗宝神牌随机抽取一张 · ${thiefDraw.map(id => roles[id].name).join('、')}</p>` : ''}
   </div>`;
 }
@@ -138,7 +151,50 @@ function createScreen() {
       ${Object.entries(boards).map(([id, item]) => `<button type="button" class="preset" data-action="preset" data-value="${id}" aria-pressed="${id === board}">${item.name}</button>`).join('')}
     </div>
     ${boardPreview(board)}
-    <div class="setup-actions">${button('确认创建', 'create-details', { variant: 'secondary' })}</div>`;
+    <div class="stack setup-actions">
+      ${button('确认创建', 'create-details', { variant: 'secondary' })}
+      ${button(customBoardName, 'custom-screen', { variant: 'secondary' })}
+    </div>`;
+}
+
+const customTabs = { wolves: '狼人阵营', village: '好人阵营', other: '其他阵营', settings: '房间配置' };
+
+function customOptions() {
+  if (customTab === 'settings' && !customQuery) {
+    const settings = { 获胜条件: '屠边', 明牌暗牌: '暗牌', 首夜狼刀: '首夜有刀', 女巫自救: '不能自救', 观战设置: '满座后可观战' };
+    return `<dl class="custom-settings">${Object.entries(settings).map(([name, value]) =>
+      `<div><dt>${name}</dt><dd>${value}</dd></div>`).join('')}</dl>`;
+  }
+  const ids = customQuery ? customRoles.filter(id => roles[id].name.includes(customQuery)) : customRoleGroups[customTab];
+  if (!ids.length) return '<p class="custom-empty" role="status">没有找到匹配的角色。</p>';
+  return `<div class="custom-role-grid">${ids.map(id => {
+    const name = roles[id].name;
+    const count = customLineup.filter(role => role === id).length;
+    const repeatable = repeatableRole(id);
+    const active = count > 0;
+    const label = repeatable ? `添加${name}（已选${count}张）` : name;
+    const disabled = customLineup.length >= presetSeatCount && (repeatable || !active);
+    return `<div class="role-choice${active ? ' selected' : ''}">
+      <button type="button" class="role-pick" data-action="custom-role" data-value="${id}" aria-label="${label}"${repeatable ? '' : ` aria-pressed="${active}"`}${disabled ? ' disabled' : ''}>${name}${repeatable && active ? ` ×${count}` : ''}</button>
+      ${repeatable && active ? `<button type="button" class="role-decrease" data-action="custom-remove" data-value="${id}" aria-label="减少${name}">−</button>` : ''}
+    </div>`;
+  }).join('')}</div>`;
+}
+
+function customPreview() {
+  const error = customLineupError(customLineup);
+  return `${boardPreview('custom', customLineup)}
+    ${error ? `<p class="custom-hint" role="status">${error}</p>` : ''}
+    <div class="setup-actions">${button('确认创建', 'create-details', { variant: 'secondary', disabled: Boolean(error) })}</div>`;
+}
+
+function customScreen() {
+  return `<h1>${customBoardName}</h1>
+    <input class="custom-search" type="search" aria-label="搜索角色名称" data-custom-search placeholder="搜索角色名称" value="${escape(customQuery)}">
+    <nav class="custom-tabs" aria-label="配置分类">${Object.entries(customTabs).map(([id, name]) =>
+      `<button type="button" data-action="custom-tab" data-value="${id}" aria-pressed="${id === customTab}">${name}</button>`).join('')}</nav>
+    <div class="custom-options">${customOptions()}</div>
+    <div class="custom-preview">${customPreview()}</div>`;
 }
 
 function joinScreen() {
@@ -175,7 +231,7 @@ function roomScreen() {
   if (roomError) return `<h1>房间 ${code}</h1><p class="panel">${escape(roomError)}</p>${button('返回首页', 'home', { variant: 'secondary' })}`;
   if (!lobby) {
     if (!info) return `<h1>房间 ${code}</h1><p role="status">正在连接…</p>`;
-    const boardName = boards[info.board].name;
+    const boardName = boardDetails(info.board, info.lineup).name;
     if (info.full) return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>
       <p class="panel">座位已满，可以观战。</p>${profileForm('spectate-room', '观战', null, joinDraft)}`;
     return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>${profileForm('join-room', '加入房间', null, joinDraft)}`;
@@ -183,8 +239,8 @@ function roomScreen() {
   const { self, seats, state } = lobby;
   const seatedCount = seats.filter(Boolean).length;
   const acknowledgements = seats.filter(guest => guest?.acknowledged).length;
-  const boardName = boards[lobby.board].name;
-  const phaseSummary = state === 'lobby' ? `${seatedCount} / 12 已入座` : `${acknowledgements} / 12 已确认`;
+  const boardName = boardDetails(lobby.board, lobby.lineup).name;
+  const phaseSummary = state === 'lobby' ? `${seatedCount} / ${seats.length} 已入座` : `${acknowledgements} / ${seats.length} 已确认`;
   const phaseInstruction = state === 'lobby' ? '点击空座位坐下，点击自己可站起来'
     : state === 'ready' ? '全部身份已确认' : '请查看并确认身份';
   const requests = lobby.replacementRequests?.length;
@@ -217,17 +273,18 @@ function roomScreen() {
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
     ${lobby.match ? matchPanel(lobby.match, button, connected) : `<div class="phase-panel">${self.spectator ? '' : `<strong>${phaseInstruction}</strong>`}<span>${phaseSummary}</span></div>`}
-    <section class="seats" aria-label="12 个座位">${seats.map(seatTile).join('')}</section>
+    <section class="seats" aria-label="${seats.length} 个座位">${seats.map(seatTile).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
 }
 
 function render() {
-  const contents = { home, create: createScreen, join: joinScreen, room: roomScreen };
+  const contents = { home, create: createScreen, custom: customScreen, join: joinScreen, room: roomScreen };
   const historyOpen = screen === 'room' && showingHistory && lobby?.match;
   root.dataset.screen = historyOpen ? 'match-history' : screen;
   homeLink.hidden = screen === 'home';
-  homeLink.setAttribute('aria-label', historyOpen ? '返回对局' : '返回首页');
+  homeLink.href = screen === 'custom' ? '/create' : '/';
+  homeLink.setAttribute('aria-label', historyOpen ? '返回对局' : screen === 'custom' ? '返回快速配置' : '返回首页');
   root.innerHTML = historyOpen ? matchHistory(lobby.match.history, button) : contents[screen]();
   clearInterval(matchClock);
   const timer = root.querySelector('[data-match-deadline]');
@@ -379,7 +436,7 @@ async function go(path, replace = false) {
     code = match[1];
     credential = read(credentialKey(code));
   } else {
-    screen = path === '/create' ? 'create' : path === '/join' ? 'join' : 'home';
+    screen = path === '/create/custom' ? 'custom' : path === '/create' ? 'create' : path === '/join' ? 'join' : 'home';
   }
   render();
   if (screen !== 'room') return;
@@ -494,9 +551,11 @@ async function submit(event) {
   submitButton.disabled = true;
   try {
     if (form.dataset.form === 'create') {
+      const custom = screen === 'custom';
       const token = read(pendingCreateKey) ?? newToken();
       write(pendingCreateKey, token);
-      const result = await request('/api/rooms', { name, board, tab, avatar }, token);
+      const result = await request('/api/rooms', { name, board: custom ? 'custom' : board, tab, avatar,
+        lineup: custom ? customLineup : undefined }, token);
       write(pendingCreateKey, null);
       write(credentialKey(result.code), token);
       if (period === epoch) go(`/room/${result.code}`);
@@ -604,19 +663,20 @@ const helpTabs = { basic: '基本信息', flow: '操作流程', roles: '角色�
 
 function showHelp(tabName = 'basic') {
   const boardId = lobby?.board ?? info?.board ?? board;
-  const selected = boards[boardId];
+  const selected = boardDetails(boardId, lobby?.lineup ?? info?.lineup);
   const tabs = `<nav class="help-tabs" aria-label="用法简介">${Object.entries(helpTabs).map(([id, name]) =>
     `<button type="button" class="preset" aria-pressed="${tabName === id}" data-action="help-tab" data-value="${id}">${name}</button>`).join('')}</nav>`;
   const nightNames = { knife: '狼刀', 'thief-start': '盗宝大师切换', mechanical: '机械狼技能', hunter: '猎人枪态' };
-  const order = nightSchedules[boardId].map(step => nightNames[step] ?? roles[step].name).join(' → ');
+  const order = nightSchedules[boardId].filter(step => boardId !== 'custom' || step === 'knife' || selected.preview.includes(step))
+    .map(step => nightNames[step] ?? roles[step].name).join(' → ');
   const pages = {
-    basic: `<p>${selected.name} · 12 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
+    basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
     flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看并确认自己的身份。</li><li>房主开始游戏，仅轮到的玩家收到私密夜间操作。</li><li>进行警长竞选、公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : ''}`,
     faq: '<p>掉线后重新打开邀请链接或点「回到最近一局」。使用同一个浏览器可恢复座位、身份和操作进度。</p><p>若另一个页面正在使用本座位，可点「在此页继续」。</p>',
   };
   if (tabName === 'roles') {
     const ids = [...new Set([...selected.preview.filter(Boolean), ...(boardId === 'thief' ? thiefDraw : [])])];
-    const wolves = new Set(['wolf', 'mechanical', 'thief']);
+    const wolves = new Set([...customRoleGroups.wolves, 'mechanical', 'thief']);
     const categories = [['狼人阵营', id => wolves.has(id)], ['好人阵营', id => !wolves.has(id) && id !== 'mixed'], ['其他角色', id => id === 'mixed']];
     pages.roles = `<label for="role-query">搜索角色名称</label><input id="role-query" data-role-query placeholder="例如 通灵师">${categories.map(([name, filter]) => {
       const list = ids.filter(filter);
@@ -655,6 +715,7 @@ async function click(event) {
   switch (command) {
     case 'home': return go('/');
     case 'create-screen': return go('/create');
+    case 'custom-screen': return go('/create/custom');
     case 'join-screen': return go('/join');
     case 'recent': {
       const recent = read(recentKey);
@@ -667,7 +728,36 @@ async function click(event) {
       root.querySelector(`[data-value="${value}"]`).focus();
       return;
     }
+    case 'custom-tab': {
+      customTab = value;
+      customQuery = '';
+      root.querySelector('[data-custom-search]').value = '';
+      for (const tabButton of root.querySelectorAll('[data-action="custom-tab"]')) {
+        tabButton.setAttribute('aria-pressed', String(tabButton === control));
+      }
+      root.querySelector('.custom-options').innerHTML = customOptions();
+      return;
+    }
+    case 'custom-role':
+    case 'custom-remove': {
+      const index = customLineup.indexOf(value);
+      if (command === 'custom-remove' || (index !== -1 && !repeatableRole(value))) {
+        customLineup.splice(index, 1);
+      } else {
+        customLineup.push(value);
+      }
+      const options = root.querySelector('.custom-options');
+      options.innerHTML = customOptions();
+      root.querySelector('.custom-preview').innerHTML = customPreview();
+      if (event.detail === 0) {
+        const replacement = options.querySelector(`[data-action="${command}"][data-value="${value}"]:enabled`)
+          ?? options.querySelector(`[data-value="${value}"]:enabled`);
+        replacement?.focus();
+      }
+      return;
+    }
     case 'create-details':
+      if (screen === 'custom' && customLineupError(customLineup)) return;
       return showDialog('创建房间', profileForm('create', '确认创建'));
     case 'profile':
       return showDialog('编辑资料', profileForm('profile', '保存', lobby.self));
@@ -693,7 +783,7 @@ async function click(event) {
       try { await navigator.share({ title: '狼人杀 · 邀请好友', url: inviteUrl() }); }
       catch (error) { if (error.name !== 'AbortError') await copyInvite(); }
       return;
-    case 'config': return showDialog('本局配置', boardPreview(lobby.board, true));
+    case 'config': return showDialog('本局配置', boardPreview(lobby.board, lobby.lineup, true));
     case 'seat':
       return Number(value) === lobby.self.seat ? action('stand') : action('seat', { seat: Number(value) });
     case 'confirm-replacement': {
@@ -759,6 +849,11 @@ async function click(event) {
 
 document.addEventListener('submit', submit);
 document.addEventListener('change', chooseAvatar);
+root.addEventListener('input', event => {
+  if (!event.target.matches('[data-custom-search]')) return;
+  customQuery = event.target.value.trim();
+  root.querySelector('.custom-options').innerHTML = customOptions();
+});
 dialog.addEventListener('input', event => {
   if (!event.target.matches('[data-role-query]')) return;
   const query = event.target.value.trim();

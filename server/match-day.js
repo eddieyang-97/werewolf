@@ -1,5 +1,5 @@
 import {
-  addHistory, changePhase, formalDeaths, gunAvailable, livingPlayers, playerAt,
+  addHistory, changePhase, formalDeaths, gunAvailable, isPackWolf, livingPlayers, playerAt,
   randomSeatOrder, revealDeaths, seatOrder,
 } from './match-state.js';
 import { electionDue, electionOpen, interruptElection } from './match-election.js';
@@ -172,7 +172,7 @@ export function closeExileVote(match) {
 }
 
 export function canSelfDestruct(match, player) {
-  if (!['wolf', 'mechanical'].includes(player.role) || match.winner) return false;
+  if ((!isPackWolf(player) && player.role !== 'mechanical') || match.winner) return false;
   const beforeBadge = electionOpen(match) || (match.phase === 'dawn' && electionDue(match));
   if (player.death && !(beforeBadge && player.death.round === match.round && player.death.cause === 'poison')) return false;
   return beforeBadge || ['dawn', 'speech-direction', 'discussion', 'exile-open'].includes(match.phase)

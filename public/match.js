@@ -34,6 +34,7 @@ const labels = {
 };
 
 export function matchLabel(control) {
+  if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }
 

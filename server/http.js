@@ -65,7 +65,7 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
         respond(res, 200, { status: 'ok', boot, revision });
         return;
       }
-      const isAppPage = roomPage.test(path) || path === '/create' || path === '/join';
+      const isAppPage = roomPage.test(path) || ['/create', '/create/custom', '/join'].includes(path);
       const asset = isAppPage ? assets.get('/') : assets.get(path);
       if (req.method === 'GET' && asset) {
         const [body, type] = asset;
@@ -86,8 +86,8 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
       }
       const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]+)$/)?.[1];
       if (req.method === 'POST' && path === '/api/rooms') {
-        const { board, name, tab, avatar } = await jsonBody(req, 24_576);
-        respond(res, 201, await rooms.create(board, name, token, tab, avatar));
+        const { board, name, tab, avatar, lineup } = await jsonBody(req, 24_576);
+        respond(res, 201, await rooms.create(board, name, token, tab, avatar, lineup));
         return;
       }
       const match = apiRoute.exec(path);

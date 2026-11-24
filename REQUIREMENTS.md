@@ -28,13 +28,21 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 
 蒙面人 always goes to an ordinary 神 seat. The three eligible cards that 盗宝大师 did not draw fill the other ordinary 神 seats. Shuffle those four cards among the ordinary 神 seats.
 
+### Custom lineups
+
+- 自定义配置 opens from 快速配置. Use the reference layout with role search, faction tabs, role pills, and a live player count and card preview. 房间配置 shows the fixed rules used by the room.
+- The host selects 3–12 seats, with at least one 狼, one 神, and one 民 for 屠边. 狼人 and 村民 can repeat. All other enabled roles are unique. 混血儿 counts toward 民. The built-in roles that depend on their preset, 机械狼 and 盗宝大师, stay in those presets. 守卫 and 摄梦人 share the opening protection slot and cannot be selected together (§5.4).
+- The sole new role is 狼王 (the handbook's 狼枪). It joins the ordinary wolves' private night discussion and knife action from N1 and can self-destruct in the ordinary windows. The ordinary knife cannot target 狼王. 预言家 sees 狼人 and 通灵师 sees 双爪. 狼王 can shoot after being exiled if play continues, after last words and before the badge. Self-destruct, poison, dream effects, and being shot give no shot. Apply immediate victory before offering a shot (§§1–2). The handbook also grants a shot after a successful Knight duel, which is unavailable in these lineups.
+- For custom rooms, run selected roles in this order: 混血儿 on N1 → 守卫 or 摄梦人 → 狼刀 → 女巫 → 毒师 → 预言家 → 通灵师 → 猎人枪态. Use the shared match rules and ordinary versions of each ability, including the 混血儿, 白痴 and good-side 蒙面人 rules.
+- The server validates the lineup before room creation and saves it with the room. Use its size for seating, spectating, deal and match-start gates. The public lineup shows card counts without seat assignments. Keep it through reconnect, restart, and rematch.
+
 ### Room flow
 
 1. **Create and share.** The host previews the board and creates a room. The lobby provides an 邀请好友 action that opens the phone's share sheet when available and offers a copy-link option. The link identifies the room and can be pasted into a group chat.
 2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, offer new guests 观战. The home screen's 加入房间 action also supports entry with a short room code.
 3. **Take a seat.** The host starts in seat 1 when the room is created. Before the deal, players can claim vacant numbered seats or stand up. Everyone sees occupied, vacant, and disconnected seats. Before the deal the host can remove a guest, including one who is disconnected or unseated. Removal revokes the guest's room session, frees any seat they held, and updates the lobby for everyone.
-4. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
-5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
+4. **Deal once.** Once all seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
+5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all seats have acknowledged. M1 ends at that state.
 
 ### Mobile setup screens
 
@@ -56,6 +64,7 @@ Deploy M1 from the private GitHub repository to a Render web service. Serve the 
 ### M1 acceptance
 
 - On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
+- Create a custom lineup and check role search, tabs, quantities, validation, and preview on a narrow phone. Deal a smaller room and verify the lineup, private assignments, and match start survive reconnect and restart. Verify 狼王's private action, knife restrictions, inspections, and exile resolution through play.
 - Share the room link in chat and tap it on a second phone. Verify that a new guest lands on the correct room screen and can join with only a nickname. Verify that a returning guest opens the same link and resumes their seat, including after the deal.
 - Verify that the host starts in seat 1 and can move before the deal. Select a photo, check the preview, and verify that another player sees the thumbnail in the lobby. Check that it survives reconnect and disappears on removal.
 - Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
@@ -87,7 +96,7 @@ The host can open the sheriff election, advance speaking and last words, publish
 
 ### Rules required for match play
 
-The following requirements cover the three supported presets. Preserve their player-visible choices, information and outcomes; the server need not reproduce physical-table procedures as distinct internal phases. Section numbers refer to the handbook linked above. Unresolved decisions are listed separately below.
+The shared requirements also apply to custom lineups. The server may simplify physical-table procedures while preserving the player-visible choices, information and outcomes. Section numbers refer to the handbook linked above. Unresolved decisions are listed separately below.
 
 #### Shared death, victory and night resolution (§§1–2, 4.2–4.3, 5.1)
 
@@ -136,7 +145,7 @@ The following requirements cover the three supported presets. Preserve their pla
 - The Poisoner has one poison, no antidote and no knife-target information. For a Thief with the Poisoner card, an unused poison is available on a Poisoner night and is not replenished by switching.
 - Dreamer cannot dream self. A dream target is protected against ordinary knives and poison that night. A Dreamer dying at night drags that night's dream target into death; daytime exile does not drag the target. Two consecutive actual uses of the dream ability on the same target cause dream death, including when a Thief's intervening 民 night separates the uses. Consecutive dream death and death by dragging block Hunter shots.
 - A good 蒙面人 exiled by day leaves immediately. If hit by a night lethal effect (ordinary knife, poison, consecutive dream death or death by dragging), formal departure normally occurs after that player's next ordinary daytime speech, not on application of the effect. Check victory at formal departure. When self-destruct removes that speech opportunity and play continues, resolve the delayed departure at night-result publication if it is still pending, or at the interruption if the night result is already public. If the last wolf's self-destruct establishes a good-side win while 蒙面人 is still in play, stop the pending departure immediately. The announcement need not explicitly identify the player as 蒙面人, although the resolution may reveal that identity. N1 蒙面人 does not receive a duplicate N1 last-words speech after their ordinary daytime speech.
-- Medium inspection uses the target's identity state at the inspection point. For the Thief, show the current disguise (after switching), not the true wolf faction. Ordinary wolves return 单爪; the handbook mentions 双爪 for a wolf gun, which is not currently specified in the supported roster.
+- Medium inspection uses the target's identity state at the inspection point. For the Thief, show the current disguise (after switching), not the true wolf faction. Ordinary wolves return 单爪. 狼王 returns 双爪 in custom lineups.
 - The handbook's special last-wolf Thief-as-蒙面 rule is outside the current app preset because the Thief cannot draw 蒙面人. Do not implement it as a reachable state unless the draw restriction changes.
 
 ### Session and information during play
@@ -152,7 +161,7 @@ The following requirements cover the three supported presets. Preserve their pla
 
 ### Remaining gameplay rulings
 
-- Confirm the mechanical double-knife learning source and full copied-ability/inspection-result mapping, including copied Hunter gun-status timing and eligibility where not specified. Confirm whether any supported roster includes a wolf gun; if so, define its allocation and apply the handbook's gun restrictions.
+- Confirm the mechanical double-knife learning source and full copied-ability/inspection-result mapping, including copied Hunter gun-status timing and eligibility where not specified. Define allocation and copy interactions before adding a wolf gun to a preset.
 - Define the pending/formal death boundary around D1 election and 自爆吞毒, including which pending N1 deaths permit an intervening self-destruct. Confirm the no-night-death sheriff direction convention and mixed lethal causes affecting gun eligibility if reachable.
 - Confirm role target and skip restrictions, exact mechanical Guard empty-guard behavior, and other unresolved action details before changing them.
 
@@ -182,4 +191,4 @@ The following requirements cover the three supported presets. Preserve their pla
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
-Custom lineups, bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, and manual elimination are candidates for recovery tools. Define their permitted phases and effects before adding them.
+Bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, and manual elimination are candidates for recovery tools. Define their permitted phases and effects before adding them.

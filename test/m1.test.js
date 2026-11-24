@@ -91,6 +91,79 @@ test('each Thief draw preserves the four ordinary power roles and 14 cards', () 
   }
 });
 
+test('custom room capacity and private deal survive restart and rematch', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'werewolf-custom-'));
+  const path = join(directory, 'room.sqlite');
+  const clock = () => 10_000;
+  let server = await start(path, clock, matchRules);
+  t.after(async () => {
+    await server.close();
+    for (const file of readdirSync(directory)) unlinkSync(join(directory, file));
+    rmdirSync(directory);
+  });
+  let { base } = server;
+  const host = browser();
+  const create = { tab: host.tab, board: 'custom', name: '房主' };
+  const lineup = ['villager', 'villager', 'wolf', 'wolfKing', 'seer'];
+  assert.equal((await fetch(`${base}/create/custom`)).status, 200);
+  for (const invalid of [null, [], ['wolf', 'seer', 'seer', 'villager'], ['wolf', 'seer', 'thief', 'villager'],
+    ['wolf', 'villager'], ['wolf', 'guard', 'dreamer', 'villager'], [...lineup, ...Array(8).fill('villager')]]) {
+    const result = await json(base, '/api/rooms', host, { ...create, lineup: invalid }, 400);
+    assert.equal(result.code, 'LINEUP');
+  }
+  const { code } = await json(base, '/api/rooms', host, { ...create, lineup }, 201);
+  const retry = await json(base, '/api/rooms', host, { ...create, lineup: ['wolf', 'seer', 'villager'] }, 201);
+  assert.equal(retry.code, code);
+  const status = await json(base, `/api/rooms/${code}`);
+  assert.deepEqual(status.lineup, lineup);
+  assert.equal(status.full, false);
+  assert.equal((await roomApi(base, code, host, 'resume')).seats.length, lineup.length);
+  await action(base, code, host, { type: 'deal' }, 409);
+  await action(base, code, host, { type: 'seat', seat: lineup.length + 1 }, 400);
+
+  const guests = Array.from({ length: lineup.length - 1 }, browser);
+  for (const [index, guest] of guests.entries()) {
+    await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
+    await action(base, code, guest, { type: 'seat', seat: index + 2 });
+  }
+  assert.equal((await json(base, `/api/rooms/${code}`)).full, true);
+  assert.equal((await roomApi(base, code, browser(), 'join', { name: '访客' }, 409)).code, 'FULL');
+  const spectator = browser();
+  assert.equal((await roomApi(base, code, spectator, 'join', { name: '观众', spectate: true })).self.spectator, true);
+  const deal = { type: 'deal', id: randomUUID() };
+  await action(base, code, host, deal);
+  const participants = [host, ...guests];
+  const assignments = await Promise.all(participants.map(async participant => {
+    const { room, assignment } = await action(base, code, participant, { type: 'reveal' });
+    assert.ok(room.seats.every(seat => !Object.hasOwn(seat, 'assignment')));
+    await action(base, code, participant, { type: 'acknowledge' });
+    return assignment;
+  }));
+  assert.deepEqual(assignments.map(card => card.role).sort(), [...lineup].sort());
+  await action(base, code, spectator, { type: 'reveal' }, 403);
+  await server.close();
+  server = await start(path, clock, matchRules);
+  base = server.base;
+  const resumed = await roomApi(base, code, host, 'resume');
+  assert.deepEqual(resumed.lineup, lineup);
+  assert.equal(resumed.canStart, true);
+  assert.deepEqual((await action(base, code, host, { type: 'reveal' })).assignment, assignments[0]);
+  await action(base, code, host, deal);
+  await action(base, code, host, { type: 'match-start' });
+  const kingIndex = assignments.findIndex(card => card.role === 'wolfKing');
+  const kingView = await roomApi(base, code, participants[kingIndex], 'sync');
+  assert.equal(kingView.match.actions[0].action, 'knife');
+  assert.ok(!kingView.match.actions[0].options.includes(kingIndex + 1));
+  assert.equal((await roomApi(base, code, spectator, 'sync')).match.self, undefined);
+  const hostMatch = (await roomApi(base, code, host, 'sync')).match;
+  const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });
+  const { matchId, window } = abandoned.room.match;
+  const rematch = await action(base, code, host, { type: 'match-choice', matchId, window, kind: 'rematch' });
+  assert.deepEqual(rematch.room.lineup, lineup);
+  assert.equal(rematch.room.seats.length, lineup.length);
+  assert.equal(rematch.room.canDeal, true);
+});
+
 for (const board of ['mechanical', 'classic', 'thief']) {
   test(`${board} completes an account-free 12-seat deal and private acknowledgement`, async t => {
     const { base, close } = await start();

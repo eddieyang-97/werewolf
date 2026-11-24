@@ -1,6 +1,6 @@
 import { canSelfDestruct } from './match-day.js';
 import { electionOpen } from './match-election.js';
-import { playerAt, roster } from './match-state.js';
+import { isPackWolf, playerAt, roster } from './match-state.js';
 import { fixedChoices, gunReport } from './night-actions.js';
 
 export function publicSpeaker(match) {
@@ -26,8 +26,8 @@ function privateNight(match, player) {
     }
     if (step.kind === 'witch' && !player.used.antidote) result.wolfTarget = match.night.knife ?? null;
   }
-  if (player.role === 'wolf' && (alive.includes(player.seat) || player.canDiscussNextNight === match.round)) {
-    result.teammates = match.players.filter(other => other.role === 'wolf' && other.seat !== player.seat
+  if (isPackWolf(player) && (alive.includes(player.seat) || player.canDiscussNextNight === match.round)) {
+    result.teammates = match.players.filter(other => isPackWolf(other) && other.seat !== player.seat
       && (alive.includes(other.seat) || other.canDiscussNextNight === match.round))
       .map(other => other.seat);
   }
