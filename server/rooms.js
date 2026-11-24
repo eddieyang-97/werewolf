@@ -1,6 +1,6 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import jpeg from 'jpeg-js';
-import { boards, customLineupError, presetSeatCount } from '../public/boards.js';
+import { boards, customLineupError, defaultSheriffMode, presetSeatCount, sheriffModes } from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
 import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
@@ -144,7 +144,7 @@ function publicStatus(room, now) {
   return {
     code: room.code,
     board: room.board,
-    ...(room.lineup ? { lineup: room.lineup } : {}),
+    ...(room.lineup ? { lineup: room.lineup, sheriffMode: room.sheriffMode ?? defaultSheriffMode } : {}),
     state: room.match ? (room.match.winner ? 'finished' : 'playing') : ready ? 'ready' : room.dealt ? 'dealt' : 'lobby',
     full: seated.length === seatCount,
     seated,
@@ -315,7 +315,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
   }
 
   return {
-    async create(board, name, token, tab, avatar, lineup) {
+    async create(board, name, token, tab, avatar, lineup, sheriffMode) {
       validateTab(tab);
       if (board === 'custom') {
         const error = customLineupError(lineup);
@@ -325,6 +325,9 @@ export function createRooms(store, clock = Date.now, matchRules) {
       } else if (lineup !== undefined) {
         roomError(400, 'LINEUP', '请选择自定义配置来调整角色。');
       }
+      if (sheriffMode !== undefined && (board !== 'custom' || typeof sheriffMode !== 'string' || !Object.hasOwn(sheriffModes, sheriffMode))) {
+        roomError(400, 'SHERIFF_MODE', '请选择有效的警徽设置。');
+      }
       const key = tokenKey(token);
       const now = clock();
       const host = newGuest(validateNickname(name), key, tab, now);
@@ -333,7 +336,10 @@ export function createRooms(store, clock = Date.now, matchRules) {
       for (let attempt = 0; attempt < 10; attempt++) {
         const code = Array.from({ length: 6 }, () => ROOM_ALPHABET[randomInt(ROOM_ALPHABET.length)]).join('');
         const room = { code, board, hostId: host.id, guests: [host], dealt: false, expiresAt: now + ONLINE_WINDOW + RETENTION };
-        if (board === 'custom') room.lineup = [...lineup];
+        if (board === 'custom') {
+          room.lineup = [...lineup];
+          room.sheriffMode = sheriffMode ?? defaultSheriffMode;
+        }
         const result = await store.create(room, key, now);
         if (result) return { code: result.code };
       }
@@ -342,8 +348,8 @@ export function createRooms(store, clock = Date.now, matchRules) {
 
     info(code) {
       return withRoom(code, (room, now) => {
-        const { board, state, full, lineup } = publicStatus(room, now);
-        return { value: { code, board, state, full, lineup } };
+        const { board, state, full, lineup, sheriffMode } = publicStatus(room, now);
+        return { value: { code, board, state, full, lineup, sheriffMode } };
       });
     },
 

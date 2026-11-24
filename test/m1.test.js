@@ -111,11 +111,19 @@ test('custom room capacity and private deal survive restart and rematch', async 
     const result = await json(base, '/api/rooms', host, { ...create, lineup: invalid }, 400);
     assert.equal(result.code, 'LINEUP');
   }
-  const { code } = await json(base, '/api/rooms', host, { ...create, lineup }, 201);
-  const retry = await json(base, '/api/rooms', host, { ...create, lineup: ['wolf', 'seer', 'villager'] }, 201);
+  for (const sheriffMode of [null, 'invalid', 'toString']) {
+    const result = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode }, 400);
+    assert.equal(result.code, 'SHERIFF_MODE');
+  }
+  const defaultHost = browser();
+  const defaultRoom = await json(base, '/api/rooms', defaultHost, { ...create, tab: defaultHost.tab, lineup }, 201);
+  assert.equal((await json(base, `/api/rooms/${defaultRoom.code}`)).sheriffMode, 'double');
+  const { code } = await json(base, '/api/rooms', host, { ...create, lineup, sheriffMode: 'none' }, 201);
+  const retry = await json(base, '/api/rooms', host, { ...create, lineup: ['wolf', 'seer', 'villager'], sheriffMode: 'single' }, 201);
   assert.equal(retry.code, code);
   const status = await json(base, `/api/rooms/${code}`);
   assert.deepEqual(status.lineup, lineup);
+  assert.equal(status.sheriffMode, 'none');
   assert.equal(status.full, false);
   assert.equal((await roomApi(base, code, host, 'resume')).seats.length, lineup.length);
   await action(base, code, host, { type: 'deal' }, 409);
@@ -146,6 +154,7 @@ test('custom room capacity and private deal survive restart and rematch', async 
   base = server.base;
   const resumed = await roomApi(base, code, host, 'resume');
   assert.deepEqual(resumed.lineup, lineup);
+  assert.equal(resumed.sheriffMode, 'none');
   assert.equal(resumed.canStart, true);
   assert.deepEqual((await action(base, code, host, { type: 'reveal' })).assignment, assignments[0]);
   await action(base, code, host, deal);
@@ -154,12 +163,20 @@ test('custom room capacity and private deal survive restart and rematch', async 
   const kingView = await roomApi(base, code, participants[kingIndex], 'sync');
   assert.equal(kingView.match.actions[0].action, 'knife');
   assert.ok(!kingView.match.actions[0].options.includes(kingIndex + 1));
+  await action(base, code, participants[kingIndex], { type: 'match-choice', matchId: kingView.match.matchId,
+    window: kingView.match.window, kind: 'night-action', choice: null });
+  const seer = participants[assignments.findIndex(card => card.role === 'seer')];
+  const seerView = (await roomApi(base, code, seer, 'sync')).match;
+  await action(base, code, seer, { type: 'match-choice', matchId: seerView.matchId, window: seerView.window,
+    kind: 'night-action', choice: kingIndex + 1 });
   assert.equal((await roomApi(base, code, spectator, 'sync')).match.self, undefined);
   const hostMatch = (await roomApi(base, code, host, 'sync')).match;
+  assert.deepEqual(hostMatch.actions.map(item => item.kind).filter(kind => kind !== 'self-destruct'), ['publish-night']);
   const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });
   const { matchId, window } = abandoned.room.match;
   const rematch = await action(base, code, host, { type: 'match-choice', matchId, window, kind: 'rematch' });
   assert.deepEqual(rematch.room.lineup, lineup);
+  assert.equal(rematch.room.sheriffMode, 'none');
   assert.equal(rematch.room.seats.length, lineup.length);
   assert.equal(rematch.room.canDeal, true);
 });

@@ -80,6 +80,79 @@ function choose(room, guest, action, choice, now) {
   assert.equal(executeMatchChoice(room, guest, { matchId, window, kind: action.kind, choice }, matchRules, now), true);
 }
 
+function playAction(room, guest, kind, choice) {
+  const action = controls(room, guest).actions?.find(entry => entry.kind === kind);
+  assert.ok(action, `${kind} must be available to seat ${guest.seat} in ${room.match.phase}`);
+  choose(room, guest, action, choice);
+}
+
+for (const sheriffMode of ['double', 'single']) {
+  test(`${sheriffMode} badge mode applies its self-destruct limit across D1 and D2`, () => {
+    const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'wolf', 'seer', 'villager', 'villager', 'villager']);
+    room.sheriffMode = sheriffMode;
+    const [king, secondWolf, , seer, host, victim, candidate] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(king, 'night-action', victim.seat);
+    play(seer, 'night-action', king.seat);
+    play(host, 'open-election');
+    for (const guest of room.guests) play(guest, 'candidacy', [king, host, candidate].includes(guest));
+    const order = match.election.order.filter(seat => seat !== king.seat);
+    play(king, 'self-destruct');
+    assert.equal(match.phase, 'last-words');
+    assert.equal(controls(room, host).speaker, victim.seat);
+    assert.deepEqual(match.history.find(event => event.kind === 'night-result').seats, [victim.seat]);
+    assert.equal(match.election.status, sheriffMode === 'single' ? 'completed' : 'postponed');
+    play(host, 'finish-speech');
+    play(host, 'next-night');
+    play(secondWolf, 'night-action', null);
+    play(seer, 'night-action', secondWolf.seat);
+
+    if (sheriffMode === 'double') {
+      play(host, 'open-election');
+      assert.deepEqual(match.election.speakers, order);
+      play(secondWolf, 'self-destruct');
+      assert.equal(match.phase, 'next-night');
+    } else {
+      assert.deepEqual(controls(room, host).actions.map(action => action.kind), ['publish-night']);
+      play(host, 'publish-night');
+      assert.equal(match.phase, 'discussion');
+    }
+    assert.equal(match.sheriff, null);
+    assert.equal(match.election.status, 'completed');
+    assert.equal(match.history.filter(event => event.kind === 'sheriff').length, 1);
+    assert.equal(match.history.filter(event => event.kind === 'night-result').length, 2);
+  });
+}
+
+test('no badge skips the election and runs ordinary exile with one vote per player', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'wolf', 'seer', 'villager', 'villager']);
+  room.sheriffMode = 'none';
+  const [wolf, secondWolf, seer, host, other] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  play(wolf, 'night-action', null);
+  play(seer, 'night-action', wolf.seat);
+  const dawn = controls(room, host);
+  assert.deepEqual(dawn.actions.map(action => action.kind), ['publish-night']);
+  assert.equal(executeMatchChoice(room, host, { matchId: dawn.matchId, window: dawn.window, kind: 'open-election' }, matchRules), false);
+  play(host, 'publish-night');
+  assert.equal(room.match.phase, 'discussion');
+  assert.equal(controls(room, secondWolf).self.canSelfDestruct, true);
+  while (room.match.phase === 'discussion') play(host, 'finish-speech');
+  assert.deepEqual(controls(room, host).actions.map(action => action.kind), ['open-exile']);
+  play(host, 'open-exile');
+  assert.equal(controls(room, secondWolf).self.canSelfDestruct, false);
+  for (const guest of room.guests) play(guest, 'vote', guest === host || guest === other ? wolf.seat : null);
+  const ballot = room.match.history.find(event => event.kind === 'exile-vote').ballot;
+  assert.deepEqual(ballot.groups, [{ seat: wolf.seat, count: 2, voters: [host.seat, other.seat] }]);
+  assert.equal(room.match.sheriff, null);
+  assert.equal(room.match.election, undefined);
+});
+
 function choiceFor(room, action) {
   const { match } = room;
   if (action.kind === 'nominate') return [];

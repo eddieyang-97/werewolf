@@ -86,8 +86,8 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
       }
       const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]+)$/)?.[1];
       if (req.method === 'POST' && path === '/api/rooms') {
-        const { board, name, tab, avatar, lineup } = await jsonBody(req, 24_576);
-        respond(res, 201, await rooms.create(board, name, token, tab, avatar, lineup));
+        const { board, name, tab, avatar, lineup, sheriffMode } = await jsonBody(req, 24_576);
+        respond(res, 201, await rooms.create(board, name, token, tab, avatar, lineup, sheriffMode));
         return;
       }
       const match = apiRoute.exec(path);
