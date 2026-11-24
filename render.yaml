@@ -1,0 +1,17 @@
+services:
+  - type: web
+    runtime: node
+    name: werewolf
+    branch: main
+    region: frankfurt
+    plan: 0.5c-512mb
+    buildCommand: npm ci --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /healthz
+    disk:
+      name: room-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: ROOM_DB_PATH
+        value: /var/data/rooms.sqlite
