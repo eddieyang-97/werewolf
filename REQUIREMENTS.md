@@ -8,7 +8,7 @@ Build a mobile browser game for friends playing at the same table or talking on 
 
 - Target portrait iPhone Safari and Android Chrome. An invite opens directly in the browser. Provide touch-friendly actions, a clear phase indicator, and an accessible seat grid that fits narrow screens without horizontal scrolling.
 - Use Simplified Chinese for player-facing copy as a working assumption.
-- Start with one official 12-player board. **预女猎白混** is the proposed first board. Use guest nicknames, a shareable invite, and a short room code.
+- Start with one official 12-player board. **预女猎白混** is the proposed first board. Use account-free guest play with a room-specific nickname, a shareable invite, and a short room code.
 
 ## Player flow
 
@@ -65,7 +65,14 @@ The host can open the sheriff election, advance speaking and last words, publish
 
 - The server owns the deal, phase transitions, eligibility, and outcomes. Each phone receives public state and only the private details its seat may know. The host’s management controls use the same visibility rules as any other seat. Keep night waiting screens generic and reveal the full role roster at game end.
 - Validate the player, action window, and target on every submission. Concurrent seat claims, repeated taps, and stale commands must leave all phones in agreement.
-- A refresh or disconnect preserves the seat and restores pending actions when the original session returns. Once roles are dealt, a code or nickname alone cannot recover a seat. Show the host the public connection state. Decide how to handle stalled private actions without exposing who can act or assigning a default to a required choice without a ruling.
+
+## Account-free reconnect
+
+- **Guest data.** Ask only for a nickname to join. Keep nicknames, seat credentials, and gameplay state within the room's lifetime. A room expires after 24 hours with no connected players by default. Delete its saved state and invalidate its credentials on expiry.
+- **Resume on the same browser.** Issue an opaque, unguessable credential when the guest enters the room and associate it with their seat once taken. Retain it in the browser across reloads. Use it to reconnect automatically after a signal drop, Wi-Fi change, or phone sleep. Both the invite and 回到最近一局 must resume the existing session. A room code and nickname authorize joining an open room only. Keep credentials out of shared links, public state, and logs.
+- **Restore the current game.** On reconnect, load the server's latest state, including the player's seat, role, current phase, permitted private information, and any pending legal action. Support the same recovery after a server restart, using short-lived room storage. Save each accepted action and its outcome together before acknowledging it. A retry after a lost acknowledgement must recover the original outcome without repeating the action.
+- **Connection status and control.** Show reconnect progress and disable actions until the restored state arrives. Only one connection can act for a seat. When a new connection resumes the seat, tell the older tab that control moved and let it request control explicitly. A returning host regains host controls only if they still hold that role.
+- **Unfinished actions.** Preserve required choices while waiting for reconnect. Pause a running action timer when a disconnect requires a pause. Resume automatically with the remaining time once the pause conditions clear. Keep private action eligibility out of public disconnect and waiting messages. Show clear guidance for expired rooms and missing credentials. MVP recovery covers the original browser profile with its credential intact.
 
 ## Decisions before implementing game rules
 
@@ -77,7 +84,8 @@ The host can open the sheriff election, advance speaking and last words, publish
 
 - On iPhone Safari and Android Chrome, friends can join through a link or code, claim seats, and complete a round from deal through rematch.
 - Walk through the home, setup, role reveal, room, voting, and history screens in portrait. Verify that the primary actions follow the reference flow and that the room status, current action, and three-column seat grid remain readable on a narrow phone.
-- Independent sessions verify role cards, wolf teammates, inspection results, and pending actions are visible only to the appropriate seats. Refreshing during a private action restores that seat and its legal choices.
+- Independent sessions verify role cards, wolf teammates, inspection results, and pending actions are visible only to the appropriate seats.
+- Verify same-seat recovery from refresh, backgrounding, a network switch, and server restart. Exercise a pending private action, a lost acknowledgement after an accepted action, a duplicate tab, and a returning host. Verify expired credentials and invite links copied to a fresh browser cannot resume another seat.
 - Verify that the host's game controls follow the phase and that an elected sheriff gains only the badge's game powers. Opening help or history and returning keeps the player in the current phase. Verify the public history shows night and day outcomes at the right time and omits private information.
 - Verify sheriff candidacy, vote progress, and the waiting path when ballots are outstanding. Exercise confirmed early close wherever the agreed ballot policy permits it.
 - Test a first-vote tie and runoff, sheriff election interruption, badge transfer, N1 last words, and Hunter timing. Exercise immediate night victory and simultaneous victory conditions. Verify 混血儿 affiliation and the 白痴／白神 exile each count correctly.
