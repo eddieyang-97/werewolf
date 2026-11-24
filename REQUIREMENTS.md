@@ -45,6 +45,10 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 - **Restore setup state.** Recover the player's room, seat, role assignment, and acknowledgement after reconnect, including after a server restart. Save each accepted change and its outcome before acknowledging it. A retry after a lost acknowledgement must recover the original outcome without repeating the change.
 - **Connection status and control.** Show reconnect progress and disable actions until restored state arrives. Allow one connection to control each session. When a new connection takes over, tell the older tab and let it request control explicitly. Restore host controls to the host's active session only. Explain expired rooms and missing credentials. Recovery covers the original browser profile with its credential intact.
 
+### Render hosting
+
+Deploy M1 from the private GitHub repository to a Render web service. Serve the mobile app and room backend at one HTTPS origin so invites can open the room directly on a friend's phone. Use durable storage for room state, including the deal and reconnect credentials, so rooms survive restarts and redeploys within their retention window.
+
 ### M1 acceptance
 
 - On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
@@ -54,6 +58,7 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 - With independent sessions, verify that every player, including the host, receives only their own role. A fresh browser with the invite or a nickname cannot recover a dealt seat.
 - For 盗宝大师, test all four possible 神 draws. Verify that each deal has 14 cards across 12 seats and that 蒙面人 and the three undrawn 神 cards go to the four ordinary 神 seats. Verify that only the 盗宝大师 seat receives its extra cards and that the same draw and cards return after reconnect and deal retry.
 - Verify recovery after refresh, phone backgrounding, network change, and server restart before and after the deal. Check that the same role, acknowledgement, and host status return. Verify duplicate-tab control and expiry.
+- On the deployed Render service, open a shared invite from a second phone and verify room entry. Restart the service with a test room and verify that its seat and role assignments survive.
 
 ## M2. Full match play
 
