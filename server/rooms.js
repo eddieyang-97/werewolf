@@ -1,4 +1,5 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
+import jpeg from 'jpeg-js';
 import { boards } from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
 
@@ -7,6 +8,8 @@ const ONLINE_WINDOW = 15_000;
 const HEARTBEAT_INTERVAL = 4_000;
 const RETENTION = 24 * 60 * 60 * 1000;
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+const AVATAR_SIZE = 128;
+const AVATAR_BYTES = 12_288;
 
 export class RoomError extends Error {
   constructor(status, code, message) {
@@ -26,6 +29,28 @@ function validateNickname(value) {
     roomError(400, 'NICKNAME', '请输入 1 至 20 个字符的昵称。');
   }
   return name;
+}
+
+function validateAvatar(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string' && value.length <= AVATAR_BYTES * 4 / 3 && /^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    try {
+      const { data, width, height } = jpeg.decode(Buffer.from(value, 'base64'), {
+        maxResolutionInMP: AVATAR_SIZE ** 2 / 1_000_000,
+        maxMemoryUsageInMB: 4,
+        tolerantDecoding: false,
+      });
+      if (width === AVATAR_SIZE && height === AVATAR_SIZE) {
+        const frame = { data, width, height };
+        const image = jpeg.encode(frame, 75).data;
+        const thumbnail = image.length <= AVATAR_BYTES ? image : jpeg.encode(frame, 55).data;
+        if (thumbnail.length <= AVATAR_BYTES) return { id: randomUUID(), jpeg: thumbnail.toString('base64') };
+      }
+    } catch {
+      // Corrupt and oversized photos share the same validation response.
+    }
+  }
+  roomError(400, 'AVATAR', '无法读取头像，请重新选择照片。');
 }
 
 export function tokenKey(token) {
@@ -68,6 +93,7 @@ function presentGuest(guest, room, now) {
   return {
     id: guest.id,
     name: guest.name,
+    avatar: guest.avatar ? `/api/rooms/${room.code}/avatar/${guest.avatar.id}` : null,
     seat: guest.seat,
     connected: isOnline(guest, now),
     host: guest.id === room.hostId,
@@ -126,6 +152,10 @@ function applyAction(room, guest, command, now) {
       assertLobby(room);
       guest.seat = null;
       return;
+    case 'avatar':
+      if (command.avatar === undefined) roomError(400, 'AVATAR', '请选择照片或移除头像。');
+      guest.avatar = validateAvatar(command.avatar);
+      return;
     case 'remove': {
       assertHost(room, guest);
       assertLobby(room);
@@ -171,12 +201,14 @@ export function createRooms(store, clock = Date.now) {
   }
 
   return {
-    async create(board, name, token, tab) {
+    async create(board, name, token, tab, avatar) {
       validateTab(tab);
       if (typeof board !== 'string' || !Object.hasOwn(boards, board)) roomError(400, 'BOARD', '请选择一个板子。');
       const key = tokenKey(token);
       const now = clock();
       const host = newGuest(validateNickname(name), key, tab, now);
+      host.seat = 1;
+      host.avatar = validateAvatar(avatar);
       for (let attempt = 0; attempt < 10; attempt++) {
         const code = Array.from({ length: 6 }, () => ROOM_ALPHABET[randomInt(ROOM_ALPHABET.length)]).join('');
         const room = { code, board, hostId: host.id, guests: [host], dealt: false, expiresAt: now + ONLINE_WINDOW + RETENTION };
@@ -193,7 +225,15 @@ export function createRooms(store, clock = Date.now) {
       });
     },
 
-    join(code, name, token, tab) {
+    avatar(code, id) {
+      return withRoom(code, room => {
+        const guest = room.guests.find(item => item.avatar?.id === id);
+        if (!guest) roomError(404, 'AVATAR_GONE', '头像不存在。');
+        return { value: Buffer.from(guest.avatar.jpeg, 'base64') };
+      });
+    },
+
+    join(code, name, token, tab, avatar) {
       validateTab(tab);
       const key = tokenKey(token);
       return withRoom(code, (room, now) => {
@@ -208,6 +248,7 @@ export function createRooms(store, clock = Date.now) {
             roomError(409, 'NAME_TAKEN', '该昵称已被使用。');
           }
           guest = newGuest(nickname, key, tab, now);
+          guest.avatar = validateAvatar(avatar);
           room.guests.push(guest);
         } else {
           seesTab(guest, tab);
@@ -248,7 +289,9 @@ export function createRooms(store, clock = Date.now) {
       validateTab(tab);
       if (!validId(command.id)) roomError(400, 'ACTION_ID', '操作凭证无效，请重试。');
       const key = tokenKey(token);
-      const signature = JSON.stringify([command.type, command.seat, command.target]);
+      const signature = command.type === 'avatar'
+        ? createHash('sha256').update(JSON.stringify([command.avatar])).digest('hex')
+        : JSON.stringify([command.type, command.seat, command.target]);
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         seesTab(guest, tab);

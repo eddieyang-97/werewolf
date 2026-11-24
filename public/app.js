@@ -12,6 +12,10 @@ const recentKey = 'werewolf-recent';
 const pendingCreateKey = 'werewolf-create';
 const headers = { 'Content-Type': 'application/json' };
 const memoryStorage = new Map();
+const maxAvatarFileSize = 20 * 1024 * 1024;
+const maxAvatarLength = 16_384;
+const avatarSize = 128;
+const jpegPrefix = 'data:image/jpeg;base64,';
 
 let screen = 'home';
 let board = 'mechanical';
@@ -90,10 +94,21 @@ function boardPreview(boardId, showName = false) {
   </div>`;
 }
 
-function nicknameForm(action, label) {
+function avatarField(avatar) {
+  return `<div class="avatar-field">
+    <label id="avatar-label" for="avatar-file">头像（选填）</label>
+    <img class="avatar-preview seat-avatar" alt="" ${avatar ? `src="${escape(avatar)}"` : 'hidden'}>
+    <input id="avatar-file" class="avatar-file screen-reader-only" type="file" name="avatar" accept="image/*" aria-labelledby="avatar-label" aria-describedby="avatar-status">
+    <label class="button secondary avatar-picker" for="avatar-file">选择照片</label>
+    <button class="button quiet avatar-clear" type="button" data-action="clear-avatar" ${avatar ? '' : 'hidden'}>移除头像</button>
+    <p id="avatar-status" class="avatar-status" role="status"></p>
+  </div>`;
+}
+
+function profileForm(action, label, guest) {
   return `<form data-form="${action}" class="stack">
-    <label for="nickname">你的昵称</label>
-    <input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称">
+    ${guest ? '' : '<label for="nickname">你的昵称</label><input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称">'}
+    ${avatarField(guest?.avatar)}
     <button class="button primary" type="submit">${label}</button>
   </form>`;
 }
@@ -137,8 +152,11 @@ function seatTile(guest, index) {
   const name = guest?.name ?? '空座位';
   const label = mine && playable ? '点击起立' : name;
   const sub = !guest ? '空座位' : !guest.connected ? '离线' : guest.acknowledged ? '已准备' : '已坐下';
+  const image = guest?.avatar ?? (guest ? null : '/art/empty-seat.png');
+  const avatar = image ? `<img class="seat-avatar" src="${escape(image)}" width="36" height="36" alt="">`
+    : `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>`;
   return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="seat" data-value="${seat}" aria-label="${seat}号座，${escape(label)}" ${playable ? '' : 'disabled'}>
-    <span class="seat-top">${guest ? `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>` : '<img class="seat-avatar" src="/art/empty-seat.png" width="55" height="55" alt="">'}${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
+    <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
     <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
     <span class="seat-state${guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected ? '✓' : 'ⓘ'}</span> ${sub}</span>
   </button>`;
@@ -151,7 +169,7 @@ function roomScreen() {
     if (info.full || info.state !== 'lobby') {
       return `<h1>房间 ${code}</h1><p class="panel">房间已满。</p>${button('返回首页', 'home', { variant: 'secondary' })}`;
     }
-    return `<h1>房间 ${code}</h1><p class="board-name">${boards[info.board].name}</p>${nicknameForm('join-room', '加入房间')}`;
+    return `<h1>房间 ${code}</h1><p class="board-name">${boards[info.board].name}</p>${profileForm('join-room', '加入房间')}`;
   }
   const { self, seats, state } = lobby;
   const seatedCount = seats.filter(Boolean).length;
@@ -163,6 +181,7 @@ function roomScreen() {
   return `<h1 class="screen-reader-only">${boardName}</h1>
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
+      ${button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
       ${self.host && state === 'lobby' ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
@@ -357,6 +376,58 @@ async function go(path, replace = false) {
   render();
 }
 
+async function avatarThumbnail(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const size = Math.min(image.naturalWidth, image.naturalHeight);
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = avatarSize;
+    const context = canvas.getContext('2d', { alpha: false });
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, avatarSize, avatarSize);
+    context.drawImage(image, (image.naturalWidth - size) / 2, (image.naturalHeight - size) / 2,
+      size, size, 0, 0, avatarSize, avatarSize);
+    const jpeg = canvas.toDataURL('image/jpeg', 0.82);
+    return jpeg.length - jpegPrefix.length <= maxAvatarLength ? jpeg : canvas.toDataURL('image/jpeg', 0.6);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function chooseAvatar(event) {
+  const input = event.target;
+  if (!input.matches('input[name="avatar"]')) return;
+  const file = input.files[0];
+  if (!file || waiting) return;
+  const form = input.form;
+  const submitButton = form.querySelector('[type="submit"]');
+  const status = form.querySelector('.avatar-status');
+  const isCurrent = () => form.isConnected && input.files[0] === file;
+  submitButton.disabled = true;
+  status.textContent = '正在处理照片…';
+  try {
+    if (file.size > maxAvatarFileSize) throw new Error('照片不能超过 20 MB。');
+    const jpeg = await avatarThumbnail(file);
+    if (!jpeg.startsWith(jpegPrefix) || jpeg.length - jpegPrefix.length > maxAvatarLength) throw new Error();
+    if (!isCurrent()) return;
+    form.dataset.avatar = jpeg.slice(jpegPrefix.length);
+    const preview = form.querySelector('.avatar-preview');
+    preview.src = jpeg;
+    preview.hidden = false;
+    form.querySelector('.avatar-clear').hidden = false;
+    status.textContent = '';
+    submitButton.disabled = false;
+  } catch (error) {
+    if (!isCurrent()) return;
+    status.textContent = file.size > maxAvatarFileSize ? error.message : '无法读取照片，请尝试 JPG 或 PNG。';
+    input.value = '';
+    submitButton.disabled = false;
+  }
+}
+
 async function submit(event) {
   const form = event.target;
   if (!(form instanceof HTMLFormElement) || !form.dataset.form) return;
@@ -369,23 +440,29 @@ async function submit(event) {
     go(`/room/${value}`);
     return;
   }
+  const submitButton = form.querySelector('button[type="submit"]');
+  if (submitButton.disabled) return;
+  const avatar = form.dataset.avatar === '' ? null : form.dataset.avatar;
+  if (form.dataset.form === 'profile') {
+    if (avatar === undefined) return dialog.close();
+    return action('avatar', { avatar });
+  }
   const name = data.get('nickname');
   const period = epoch;
   waiting = true;
-  const submitButton = event.submitter ?? form.querySelector('button[type="submit"]');
   submitButton.disabled = true;
   try {
     if (form.dataset.form === 'create') {
       const token = read(pendingCreateKey) ?? newToken();
       write(pendingCreateKey, token);
-      const result = await request('/api/rooms', { name, board, tab }, token);
+      const result = await request('/api/rooms', { name, board, tab, avatar }, token);
       write(pendingCreateKey, null);
       write(credentialKey(result.code), token);
       if (period === epoch) go(`/room/${result.code}`);
     } else {
       credential ??= read(pendingJoinKey(code)) ?? newToken();
       write(pendingJoinKey(code), credential);
-      const next = await roomRequest('join', { name });
+      const next = await roomRequest('join', { name, avatar });
       if (period === epoch) {
         applyLobby(next);
         schedulePoll(1_800);
@@ -483,7 +560,21 @@ async function click(event) {
       return;
     }
     case 'create-details':
-      return showDialog('创建房间', nicknameForm('create', '确认创建'));
+      return showDialog('创建房间', profileForm('create', '确认创建'));
+    case 'profile':
+      return showDialog('编辑资料', profileForm('profile', '保存', lobby.self));
+    case 'clear-avatar': {
+      if (waiting) return;
+      const form = control.form;
+      const preview = form.querySelector('.avatar-preview');
+      preview.removeAttribute('src');
+      preview.hidden = control.hidden = true;
+      form.querySelector('.avatar-file').value = '';
+      form.querySelector('.avatar-status').textContent = '';
+      form.querySelector('[type="submit"]').disabled = false;
+      form.dataset.avatar = '';
+      return;
+    }
     case 'help':
       return showDialog('用法简介', '<ol class="help-steps"><li>房主选择板子并邀请好友。</li><li>点击空座位入座。</li><li>房主在 12 位玩家入座后发放身份。</li><li>查看自己的身份并点击「我知道了」。</li></ol>');
     case 'invite':
@@ -522,6 +613,7 @@ async function click(event) {
 }
 
 document.addEventListener('submit', submit);
+document.addEventListener('change', chooseAvatar);
 document.addEventListener('click', click);
 dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); });
 window.addEventListener('popstate', () => go(location.pathname, true));

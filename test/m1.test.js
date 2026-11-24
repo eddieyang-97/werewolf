@@ -5,6 +5,7 @@ import { mkdtempSync, readdirSync, rmdirSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import jpeg from 'jpeg-js';
 import { thiefDraw } from '../public/boards.js';
 import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
@@ -53,16 +54,17 @@ function action(base, code, participant, command, status = 200) {
   return roomApi(base, code, participant, 'action', { command: { id: randomUUID(), ...command } }, status);
 }
 
-async function setup(base, board) {
+async function setup(base, board, avatar) {
   const host = browser();
-  const { code } = await json(base, '/api/rooms', host, { tab: host.tab, board, name: '房主' }, 201);
+  const { code } = await json(base, '/api/rooms', host, { tab: host.tab, board, name: '房主', avatar }, 201);
   assert.equal((await json(base, '/api/rooms', host, { tab: host.tab, board, name: '房主' }, 201)).code, code);
-  await roomApi(base, code, host, 'resume');
+  const room = await roomApi(base, code, host, 'resume');
+  assert.equal(room.self.seat, 1);
+  assert.deepEqual(room.seats[0], room.self);
   return { code, host };
 }
 
 async function fill(base, code, host) {
-  await action(base, code, host, { type: 'seat', seat: 1 });
   const guests = Array.from({ length: 11 }, browser);
   await Promise.all(guests.map(async (guest, index) => {
     await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
@@ -134,6 +136,10 @@ test('seat claims serialize, and host removal revokes the old credential', async
   const second = browser();
   const joined = await roomApi(base, code, first, 'join', { name: '玩家甲' });
   await roomApi(base, code, second, 'join', { name: '玩家乙' });
+  assert.equal((await action(base, code, first, { type: 'seat', seat: 1 }, 409)).code, 'OCCUPIED');
+  await action(base, code, host, { type: 'seat', seat: 12 });
+  assert.equal((await json(base, '/api/rooms', host, { tab: host.tab, board: 'classic', name: '房主' }, 201)).code, code);
+  assert.equal((await roomApi(base, code, host, 'sync')).self.seat, 12);
   const requests = [first, second].map(guest => fetch(`${base}/api/rooms/${code}/action`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${guest.token}`, 'Content-Type': 'application/json' },
@@ -150,6 +156,41 @@ test('seat claims serialize, and host removal revokes the old credential', async
   assert.equal((await roomApi(base, code, winner, 'resume', {}, 401)).code, 'SESSION_ENDED');
   assert.equal((await roomApi(base, code, winner, 'join', { name: '新昵称' }, 401)).code, 'SESSION_ENDED');
   assert.equal((await action(base, code, other, { type: 'seat', seat: 1 })).room.self.seat, 1);
+});
+
+function photo(color) {
+  const data = Buffer.alloc(128 * 128 * 4, color);
+  return jpeg.encode({ width: 128, height: 128, data }, 80).data.toString('base64');
+}
+
+test('room avatars are optional and follow the guest on edit, reconnect and removal', async t => {
+  const { base, close } = await start();
+  t.after(close);
+  const original = photo(14);
+  const { code, host } = await setup(base, 'classic', original);
+  const hostAvatar = (await roomApi(base, code, host, 'sync')).self.avatar;
+  assert.ok(hostAvatar);
+  assert.equal(Object.hasOwn(await json(base, `/api/rooms/${code}`), 'seats'), false);
+  const guest = browser();
+  const invalid = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString('base64');
+  assert.equal((await roomApi(base, code, guest, 'join', { name: '玩家甲', avatar: invalid }, 400)).code, 'AVATAR');
+  const joined = await roomApi(base, code, guest, 'join', { name: '玩家甲', avatar: original });
+  assert.equal(joined.seats[0].avatar, hostAvatar);
+  const image = await fetch(new URL(joined.self.avatar, base));
+  assert.equal(image.status, 200);
+  assert.equal(image.headers.get('content-type'), 'image/jpeg');
+  assert.equal(image.headers.get('cache-control'), 'no-store');
+  assert.equal(jpeg.decode(Buffer.from(await image.arrayBuffer())).width, 128);
+  const command = { type: 'avatar', id: randomUUID(), avatar: photo(180) };
+  const replacement = (await action(base, code, guest, command)).room.self.avatar;
+  assert.notEqual(replacement, joined.self.avatar);
+  assert.equal((await action(base, code, guest, command)).room.self.avatar, replacement);
+  assert.equal((await fetch(new URL(joined.self.avatar, base))).status, 404);
+  assert.equal((await roomApi(base, code, { ...guest, tab: randomUUID() }, 'resume')).self.avatar, replacement);
+  assert.equal((await roomApi(base, code, host, 'sync')).waiting[0].avatar, replacement);
+  assert.equal((await action(base, code, host, { type: 'avatar', avatar: null })).room.self.avatar, null);
+  await action(base, code, host, { type: 'remove', target: joined.self.id });
+  assert.equal((await fetch(new URL(replacement, base))).status, 404);
 });
 
 test('a concurrent removal and deal cannot both change the roster', async t => {
@@ -184,7 +225,8 @@ test('the same private assignment and acknowledgement survive a restart and tab 
     for (const file of readdirSync(directory)) unlinkSync(join(directory, file));
     rmdirSync(directory);
   });
-  const { code, host } = await setup(server.base, 'thief');
+  const { code, host } = await setup(server.base, 'thief', photo(45));
+  const hostAvatar = (await roomApi(server.base, code, host, 'sync')).self.avatar;
   const participants = await fill(server.base, code, host);
   await action(server.base, code, host, { type: 'deal' });
   const cards = await Promise.all(participants.map(person => action(server.base, code, person, { type: 'reveal' })));
@@ -204,7 +246,10 @@ test('the same private assignment and acknowledgement survive a restart and tab 
   assert.equal((await roomApi(server.base, code, original, 'sync', {}, 409)).code, 'TAKEN_OVER');
   assert.deepEqual((await action(server.base, code, replacement, { type: 'reveal' })).assignment, cards[index].assignment);
   const hostReplacement = { token: host.token, tab: randomUUID() };
-  assert.equal((await roomApi(server.base, code, hostReplacement, 'resume')).self.host, true);
+  const hostView = await roomApi(server.base, code, hostReplacement, 'resume');
+  assert.equal(hostView.self.host, true);
+  assert.equal(hostView.self.avatar, hostAvatar);
+  assert.equal((await fetch(new URL(hostAvatar, server.base))).status, 200);
 });
 
 test('room expires after 24 hours without a connected player', async t => {

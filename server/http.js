@@ -15,9 +15,10 @@ const files = {
 };
 const roomPattern = '[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}';
 const apiRoute = new RegExp(`^/api/rooms/(${roomPattern})(?:/(join|resume|sync|action|disconnect))?$`);
+const avatarRoute = new RegExp(`^/api/rooms/(${roomPattern})/avatar/([a-f0-9-]{36})$`);
 const roomPage = new RegExp(`^/room/${roomPattern}/?$`);
 const securityHeaders = {
-  'Content-Security-Policy': "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'",
+  'Content-Security-Policy': "default-src 'self'; img-src 'self' blob: data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'no-referrer',
   'Cache-Control': 'no-store',
@@ -28,7 +29,7 @@ function respond(res, status, value) {
   res.end(JSON.stringify(value));
 }
 
-async function jsonBody(req) {
+async function jsonBody(req, limit = 8_192) {
   if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] ?? '')) {
     throw new RoomError(415, 'CONTENT_TYPE', '请求格式不正确。');
   }
@@ -36,7 +37,7 @@ async function jsonBody(req) {
   let length = 0;
   for await (const chunk of req) {
     length += chunk.length;
-    if (length > 8_192) throw new RoomError(413, 'BODY_SIZE', '请求过大。');
+    if (length > limit) throw new RoomError(413, 'BODY_SIZE', '请求过大。');
     chunks.push(chunk);
   }
   try {
@@ -75,10 +76,17 @@ export function createApp(store, { clock = Date.now, revision = 'local' } = {}) 
         res.end(body);
         return;
       }
+      const avatar = avatarRoute.exec(path);
+      if (req.method === 'GET' && avatar) {
+        const image = await rooms.avatar(avatar[1], avatar[2]);
+        res.writeHead(200, { ...securityHeaders, 'Content-Type': 'image/jpeg' });
+        res.end(image);
+        return;
+      }
       const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]+)$/)?.[1];
       if (req.method === 'POST' && path === '/api/rooms') {
-        const { board, name, tab } = await jsonBody(req);
-        respond(res, 201, await rooms.create(board, name, token, tab));
+        const { board, name, tab, avatar } = await jsonBody(req, 24_576);
+        respond(res, 201, await rooms.create(board, name, token, tab, avatar));
         return;
       }
       const match = apiRoute.exec(path);
@@ -89,10 +97,10 @@ export function createApp(store, { clock = Date.now, revision = 'local' } = {}) 
           return;
         }
         if (req.method === 'POST' && operation) {
-          const { tab, name, command } = await jsonBody(req);
+          const { tab, name, command, avatar } = await jsonBody(req, ['join', 'action'].includes(operation) ? 24_576 : undefined);
           let result;
           switch (operation) {
-            case 'join': result = await rooms.join(code, name, token, tab); break;
+            case 'join': result = await rooms.join(code, name, token, tab, avatar); break;
             case 'resume': result = await rooms.sync(code, token, tab, true); break;
             case 'sync': result = await rooms.sync(code, token, tab); break;
             case 'disconnect': result = await rooms.disconnect(code, token, tab); break;

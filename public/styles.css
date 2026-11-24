@@ -64,6 +64,15 @@ input::placeholder { color: #767676; }
 .button:disabled { color: #777; border-color: #ddd; background: #f8f8f8; }
 form.stack { max-width: 350px; margin: 16px auto 6px; }
 form.stack > .button { width: min(100%, 190px); justify-self: center; margin-top: 4px; }
+.avatar-field { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 6px 9px; }
+.avatar-field > label:first-child, .avatar-status { grid-column: 1 / -1; }
+.avatar-file { min-height: 0; padding: 0; }
+.avatar-picker { grid-column: 2; justify-self: start; cursor: pointer; font-size: .85rem; }
+.avatar-preview[hidden] ~ .avatar-picker { grid-column: 1 / -1; }
+.avatar-file:focus-visible + .avatar-picker { outline: 2px solid var(--green-text); outline-offset: 3px; }
+.avatar-field .avatar-clear { justify-self: start; grid-column: 1 / -1; padding-inline: 0; font-size: .85rem; }
+.avatar-field [hidden], .avatar-status:empty { display: none; }
+.avatar-status { color: var(--muted); font-size: .8rem; }
 
 .presets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 423px; gap: 7px; margin: 0 auto 25px; }
 .preset { min-height: 36px; color: #06a957; border: 1px solid var(--green-border); background: var(--page); border-radius: 5px; padding: 5px 3px; line-height: 1.2; font-size: .9rem; font-weight: 660; }
@@ -86,6 +95,7 @@ form.stack > .button { width: min(100%, 190px); justify-self: center; margin-top
 .room-tools .button:disabled { color: #929292; background: transparent; border-color: transparent; }
 .home-help [data-action="help"]::before, .room-tools .button::before { margin-right: 4px; font-size: 1.12em; }
 [data-action="help"]::before { content: "▤"; }
+.room-tools [data-action="profile"]::before { content: "♙"; }
 .room-tools [data-action="manage"]::before { content: "⚙"; }
 .room-tools [data-action="config"]::before { content: "◈"; }
 .room-overview { display: grid; grid-template-columns: minmax(0, 42%) minmax(0, 1fr); gap: clamp(18px, 9vw, 54px); align-items: start; width: calc(100% - 22px); margin-inline: auto; }
@@ -105,7 +115,7 @@ form.stack > .button { width: min(100%, 190px); justify-self: center; margin-top
 .seat-name { width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; font-size: .94rem; }
 .seat-top { position: relative; display: grid; justify-items: center; width: 100%; }
 .seat-avatar { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; color: #fff; background: #284453; font-weight: 650; }
-img.seat-avatar { background: #f3f3f3; }
+img.seat-avatar { background: #f3f3f3; object-fit: cover; }
 .seat.mine .seat-avatar { background: #237c4f; }
 .host-label { position: absolute; top: -4px; left: 3px; color: #fff; background: #007600; padding: 1px 6px; border-radius: 12px; white-space: nowrap; font-size: .66rem; }
 .seat-state { width: min(100%, 112px); display: grid; grid-auto-flow: column; justify-content: center; align-items: center; gap: 3px; min-height: 30px; padding: 3px; color: #777; background: var(--page); box-shadow: 0 5px 10px #0003; font-size: .78rem; }
@@ -140,6 +150,7 @@ dialog label + input { margin-top: 6px; }
 @media (max-width: 345px) {
   :root { --gutter: 12px; }
   .room-overview { gap: 15px; }
+  .room-tools .button { font-size: .76rem; }
   .room-meta strong, .room-meta .meta-label, .preset { font-size: .81rem; }
   .role-tile, .seat-name { font-size: .82rem; }
 }
