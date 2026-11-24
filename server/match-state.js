@@ -60,6 +60,8 @@ export function checkVictory(match) {
 
 // Related deaths become formal together, so both victory conditions see the same roster.
 export function formalDeaths(match, deaths) {
+  if (match.winner) return [];
+
   const departed = [];
   for (const { seat, cause, time } of deaths) {
     const player = playerAt(match, seat);
