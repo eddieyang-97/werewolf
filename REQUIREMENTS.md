@@ -1,6 +1,6 @@
 # Werewolf requirements
 
-M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating for full rooms.
+M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating and seat replacement for disconnected players.
 
 This document defines the app’s required behavior and acceptance criteria. Use the [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) as a reference for board rules and unresolved cases. Within the handbook, board-specific provisions take precedence over general provisions.
 
@@ -31,7 +31,7 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 ### Room flow
 
 1. **Create and share.** The host previews the board and creates a room. The lobby provides an 邀请好友 action that opens the phone's share sheet when available and offers a copy-link option. The link identifies the room and can be pasted into a group chat.
-2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, show new guests that the room is full until M3 adds spectating. The home screen's 加入房间 action also supports entry with a short room code.
+2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, offer new guests 观战. The home screen's 加入房间 action also supports entry with a short room code.
 3. **Take a seat.** The host starts in seat 1 when the room is created. Before the deal, players can claim vacant numbered seats or stand up. Everyone sees occupied, vacant, and disconnected seats. Before the deal the host can remove a guest, including one who is disconnected or unseated. Removal revokes the guest's room session, frees any seat they held, and updates the lobby for everyone.
 4. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
 5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
@@ -167,11 +167,13 @@ The following requirements cover the three supported presets. Preserve their pla
 - For 机械狼通灵师, test ordinary Guard empty-guard reset, same-guard/same-save death and Hunter eligibility, mechanical learning timing and visibility, reflected poison, night-start knife inheritance and the extra-knife restriction once its learning source is agreed.
 - For 盗宝大师, test both starting identities, mandatory switching and persistent skill resources, disguise inspections, N1 no-knife and subsequent inheritance, dream protection/dragging/consecutive-use death across switching, and good 蒙面 delayed departure. Verify that a good-side win after the last wolf self-destructs before dawn publication cancels the pending departure. Verify that the excluded Thief-as-蒙面 state cannot arise.
 
-## M3. Spectating
+## M3. Spectating and seat replacement
 
 - When all 12 seats are occupied, offer new guests 观战 from the same room invite or code, including during a match. Restore an existing player's session before offering spectator entry.
-- Spectators are account-free and use no seat. Show them only public room and match information at the same publication points as players. A spectator's session has read-only access.
-- Verify that a new guest can spectate a full lobby and a match in progress. Check that spectator entry leaves the roster and deal unchanged, that returning players keep their seats, and that spectators receive no private roles, pending actions, or unreleased votes.
+- Spectators are account-free and use no seat. A room can keep up to 24 spectator sessions. Show them only public room and match information at the same publication points as players. Spectators can request to replace an offline player and cancel their own request.
+- A spectator selects an occupied, disconnected seat during setup or active play. Only the room host can approve the request. The host’s seat is excluded. The server checks that the seat is still held by the same offline player and that the spectator is online. A player reconnecting before approval clears requests for their seat.
+- On approval, move the spectator into that seat and keep the deal, game state, and pending choices attached to it. If the deal has happened and play has yet to begin, the replacement reviews and confirms the role before the match starts. During play the replacement gains the seat’s private view and legal actions immediately. The original session becomes a spectator and, once roles are dealt, cannot request another seat until rematch. The replacement keeps the seat on rematch.
+- Verify that a guest can spectate a full lobby and a match in progress without seeing private roles, pending actions, or unreleased votes. Verify that a returning player keeps their seat if they reconnect first, and that an approved handoff survives retry and restart. Use independent sessions to check that only the replacement can resume the seat’s private action.
 
 ## Later candidates
 
