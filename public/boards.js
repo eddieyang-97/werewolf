@@ -17,8 +17,20 @@ export const roles = {
 
 export const thiefDraw = ['poisoner', 'dreamer', 'hunter', 'medium'];
 
+const fourVillagers = ['villager', 'villager', 'villager', 'villager'];
+const threeWolves = ['wolf', 'wolf', 'wolf'];
+
 export const boards = {
-  mechanical: { name: '机械狼通灵师', wolves: '3 小狼、1 机械狼', powers: '通灵师、女巫、守卫、猎人', villagers: '4 村民', preview: ['wolf', 'mechanical', 'medium', 'witch', 'guard', 'hunter', 'villager'] },
-  classic: { name: '预女猎白混', wolves: '4 狼人', powers: '预言家、女巫、猎人、白痴／白神', villagers: '3 村民、1 混血儿', preview: ['wolf', 'seer', 'witch', 'hunter', 'fool', 'villager', 'mixed'] },
-  thief: { name: '盗宝大师', wolves: '3 小狼、1 盗宝大师', powers: '蒙面人及未被盗宝大师抽中的 3 张神牌', villagers: '4 村民', preview: ['wolf', 'thief', 'masked', ...thiefDraw, 'villager'] },
+  mechanical: {
+    name: '机械狼通灵师',
+    preview: [...fourVillagers, ...threeWolves, 'mechanical', 'medium', 'witch', 'guard', 'hunter'],
+  },
+  classic: {
+    name: '预女猎白混',
+    preview: [...fourVillagers.slice(0, 3), 'mixed', ...threeWolves, 'wolf', 'seer', 'witch', 'hunter', 'fool'],
+  },
+  thief: {
+    name: '盗宝大师',
+    preview: [...fourVillagers, ...threeWolves, 'thief', 'masked', null, null, null],
+  },
 };

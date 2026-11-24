@@ -3,6 +3,7 @@ import { boards, roles, thiefDraw } from './boards.js';
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
 const notice = document.querySelector('#notice');
+const homeLink = document.querySelector('#home-link');
 const tab = crypto.randomUUID();
 const codePattern = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const credentialKey = code => `werewolf-room-${code}`;
@@ -74,20 +75,19 @@ function roleMark(roleId) {
 }
 
 function roleTile(roleId) {
+  if (roleId === null) {
+    return '<div class="role-tile"><span class="mark random" aria-hidden="true">?</span><span>随机神牌</span></div>';
+  }
   return `<div class="role-tile">${roleMark(roleId)}<span>${roles[roleId].name}</span></div>`;
 }
 
-function boardPreview(boardId) {
+function boardPreview(boardId, showName = false) {
   const selected = boards[boardId];
   return `<div class="board-preview">
-    <div class="preview-heading"><strong>${selected.name}</strong><span>12 人</span></div>
-    <dl class="lineup">
-      <dt>4 狼</dt><dd>${selected.wolves}</dd>
-      <dt>4 神</dt><dd>${selected.powers}</dd>
-      <dt>4 民</dt><dd>${selected.villagers}</dd>
-    </dl>
-    ${boardId === 'thief' ? `<p class="draw-note">盗宝神牌随机抽取一张 · ${thiefDraw.map(id => roles[id].name).join('、')}</p>` : ''}
+    ${showName ? `<h3 class="board-name">${selected.name}</h3>` : ''}
+    <p class="player-count">总玩家数 <strong>12 人</strong></p>
     <div class="role-grid">${selected.preview.map(roleTile).join('')}</div>
+    ${boardId === 'thief' ? `<p class="draw-note">盗宝神牌随机抽取一张 · ${thiefDraw.map(id => roles[id].name).join('、')}</p>` : ''}
   </div>`;
 }
 
@@ -101,18 +101,18 @@ function nicknameForm(action, label) {
 
 function home() {
   return `<div class="home">
-    <div class="hero" aria-hidden="true"><div class="moon"></div></div>
-    <h1>狼人杀</h1>
-    <div class="stack">
+    <h1 class="screen-reader-only">狼人杀</h1>
+    <div class="scene hero" aria-hidden="true"><span class="scene-moon"></span><span class="scene-ridge"></span></div>
+    <div class="stack home-actions">
       ${button('创建房间', 'create-screen')}
-      ${button('加入房间', 'join-screen', { variant: 'secondary' })}
-      ${button('回到最近一局', 'recent', { variant: 'quiet', disabled: !read(recentKey) })}
+      ${button('加入房间', 'join-screen')}
+      ${button('回到最近一局', 'recent', { variant: 'secondary', disabled: !read(recentKey) })}
     </div>
   </div>`;
 }
 
 function createScreen() {
-  return `<h1>创建房间</h1>
+  return `<h1>快速配置</h1>
     <div class="presets" aria-label="选择板子">
       ${Object.entries(boards).map(([id, item]) => `<button type="button" class="preset" data-action="preset" data-value="${id}" aria-pressed="${id === board}">${item.name}</button>`).join('')}
     </div>
@@ -136,10 +136,10 @@ function seatTile(guest, index) {
   const playable = lobby.state === 'lobby' && connected && (!guest || mine);
   const name = guest?.name ?? '空座位';
   const label = mine && playable ? '点击起立' : name;
-  const sub = !guest ? '等待入座' : !guest.connected ? '离线' : guest.acknowledged ? '已确认' : '已入座';
+  const sub = !guest ? '空座位' : !guest.connected ? '离线' : guest.acknowledged ? '已确认' : '已入座';
   return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="seat" data-value="${seat}" aria-label="${seat}号座，${escape(label)}" ${playable ? '' : 'disabled'}>
     <span class="seat-top"><span class="seat-number">${String(seat).padStart(2, '0')}</span>${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
-    <strong>${escape(name)}</strong>
+    <strong>${escape(guest ? name : '等待入座')}</strong>
     <span class="seat-state${guest?.connected ? ' present' : ''}">${sub}</span>
   </button>`;
 }
@@ -156,29 +156,42 @@ function roomScreen() {
   const { self, seats, state } = lobby;
   const seatedCount = seats.filter(Boolean).length;
   const acknowledgements = seats.filter(guest => guest?.acknowledged).length;
-  const actionPanel = state === 'lobby'
-    ? `<span>${seatedCount} / 12 已入座</span>${self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}`
-    : `<span>${acknowledgements} / 12 已确认</span><strong>${state === 'ready' ? '全部身份已确认' : '请查看并确认身份'}</strong>`;
-  return `<div class="room-title"><h1>${boards[lobby.board].name}</h1><span class="status-chip">${phases[state]}</span></div>
-    <section class="room-meta">
-      <div><span class="meta-label">房间号</span><strong class="room-code">${code}</strong></div>
-      <div><span class="meta-label">我的座位</span><strong>${self.seat ?? '未入座'}</strong></div>
-      ${button('查看我的身份', 'reveal', { variant: 'secondary', disabled: !connected || state === 'lobby' })}
-    </section>
+  const boardName = boards[lobby.board].name;
+  const phaseSummary = state === 'lobby' ? `${seatedCount} / 12 已入座` : `${acknowledgements} / 12 已确认`;
+  const phaseInstruction = state === 'lobby' ? '点空座入座 · 点自己的座位起立'
+    : state === 'ready' ? '全部身份已确认' : '请查看并确认身份';
+  return `<h1 class="screen-reader-only">${boardName}</h1>
     <div class="room-tools">
-      ${button('邀请好友', 'invite', { variant: 'quiet' })}
       ${button('本局配置', 'config', { variant: 'quiet' })}
       ${self.host && state === 'lobby' ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
     </div>
+    <section class="room-overview">
+      <div class="room-board">
+        <div class="scene room-scene" aria-hidden="true"><span class="scene-moon"></span><span class="scene-ridge"></span></div>
+        <strong>${boardName}</strong>
+      </div>
+      <div class="room-meta">
+        <div><span class="meta-label">房间编号</span><strong class="room-code">${code}</strong></div>
+        <div><span class="meta-label">房间状态</span><strong>${phases[state]}</strong></div>
+        <div><span class="meta-label">我的座位</span><strong>${self.seat ?? '未入座'}</strong></div>
+        ${button('查看我的身份', 'reveal', { variant: 'secondary', disabled: !connected || state === 'lobby' })}
+      </div>
+    </section>
+    <div class="stack room-actions">
+      ${button('邀请好友', 'invite')}
+      ${state === 'lobby' && self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}
+    </div>
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此座位。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
-    <div class="phase-panel">${actionPanel}</div>
+    <div class="phase-panel"><strong>${phaseInstruction}</strong><span>${phaseSummary}</span></div>
     <section class="seats" aria-label="12 个座位">${seats.map(seatTile).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}`;
 }
 
 function render() {
   const contents = { home, create: createScreen, join: joinScreen, room: roomScreen };
+  root.dataset.screen = screen;
+  homeLink.hidden = screen === 'home';
   root.innerHTML = contents[screen]();
 }
 
@@ -480,7 +493,7 @@ async function click(event) {
       try { await navigator.share({ title: '狼人杀 · 邀请好友', url: inviteUrl() }); }
       catch (error) { if (error.name !== 'AbortError') await copyInvite(); }
       return;
-    case 'config': return showDialog('本局配置', boardPreview(lobby.board));
+    case 'config': return showDialog('本局配置', boardPreview(lobby.board, true));
     case 'seat':
       return Number(value) === lobby.self.seat ? action('stand') : action('seat', { seat: Number(value) });
     case 'confirm-deal':
