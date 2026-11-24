@@ -15,7 +15,7 @@ function nightOrder(board, rules) {
 
 export function startMatch(room, rules) {
   const seated = room.guests.filter(guest => guest.seat !== null);
-  room.match = createMatch(room.board, seated, room.sheriffMode);
+  room.match = createMatch(room.board, seated, room.sheriffMode, room.customRules);
   beginNight(room.match, nightOrder(room.board, rules), rules);
 }
 
