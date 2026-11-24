@@ -10,6 +10,7 @@ import { Client } from 'pg';
 import { thiefDraw } from '../public/boards.js';
 import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
+import { matchRules } from '../server/match-rules.js';
 import { openPostgresStore } from '../server/postgres-store.js';
 import { openStore } from '../server/store.js';
 
@@ -130,7 +131,32 @@ async function fill(base, code, host) {
   return [host, ...guests];
 }
 
+// Expected rosters come from REQUIREMENTS.md, not the production dealer or UI previews.
+const thiefPowerRoles = ['poisoner', 'dreamer', 'hunter', 'medium'];
+const expectedRoles = {
+  classic: ['wolf', 'wolf', 'wolf', 'wolf', 'villager', 'villager', 'villager', 'mixed', 'seer', 'witch', 'hunter', 'fool'],
+  mechanical: ['wolf', 'wolf', 'wolf', 'mechanical', 'villager', 'villager', 'villager', 'villager', 'medium', 'witch', 'guard', 'hunter'],
+};
+
+function assertRoster(board, assignments) {
+  let expected = expectedRoles[board];
+  if (board === 'thief') {
+    const thief = assignments.find(card => card.role === 'thief');
+    assert.ok(thief);
+    const drawn = thief.extra?.[0];
+    assert.ok(thiefPowerRoles.includes(drawn), 'Thief must draw an eligible power role');
+    assert.deepEqual(thief.extra, [drawn, 'villager']);
+    expected = ['wolf', 'wolf', 'wolf', 'thief', 'villager', 'villager', 'villager', 'villager', 'masked',
+      ...thiefPowerRoles.filter(role => role !== drawn)];
+  }
+  assert.deepEqual(assignments.map(card => card.role).sort(), [...expected].sort());
+  for (const card of assignments) {
+    if (card.role !== 'thief') assert.equal(card.extra, undefined);
+  }
+}
+
 test('each Thief draw preserves the four ordinary power roles and 14 cards', () => {
+  assert.deepEqual([...thiefDraw].sort(), [...thiefPowerRoles].sort());
   for (const [index, choice] of thiefDraw.entries()) {
     const deck = buildDeck('thief', count => {
       assert.equal(count, 4);
@@ -144,6 +170,7 @@ test('each Thief draw preserves the four ordinary power roles and 14 cards', () 
     assert.equal(deck.filter(card => card.role === 'masked').length, 1);
     assert.equal(deck.filter(card => card.role === 'villager').length, 4);
     assert.equal(deck.filter(card => card.role === 'wolf').length, 3);
+    assertRoster('thief', deck);
   }
 });
 
@@ -184,9 +211,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
         await action(base, code, person, { type: 'acknowledge' });
         return assignment;
       }));
-      const drawn = assignments.find(card => card.role === 'thief')?.extra?.[0];
-      const expected = buildDeck(board, () => thiefDraw.indexOf(drawn));
-      assert.deepEqual(assignments.map(card => card.role).sort(), expected.map(card => card.role).sort());
+      assertRoster(board, assignments);
       assert.equal(assignments.reduce((count, card) => count + 1 + (card.extra?.length ?? 0), 0), board === 'thief' ? 14 : 12);
       assert.equal((await roomApi(base, code, host, 'sync')).state, 'ready');
       assert.equal((await roomApi(base, code, browser(), 'resume', {}, 401)).code, 'SESSION_ENDED');
@@ -315,15 +340,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
   });
 
   roomTest('M2 launch gates, private choices, and their receipts survive the room server restarting', async start => {
-    const fixtureRules = {
-      nightChoices: match => [null, ...match.night.alive],
-      applyNightChoice(match, player, kind, target) {
-        assert.equal(kind, 'knife');
-        match.night.knife = target;
-        return true;
-      },
-    };
-    let base = await start({ matchRules: fixtureRules });
+    let base = await start({ matchRules });
     const { code, host } = await setup(base, 'mechanical');
     assert.equal((await action(base, code, host, { type: 'match-start' }, 409)).code, 'NOT_READY');
     const players = await fill(base, code, host);
@@ -349,7 +366,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.deepEqual(pending.actions.map(item => item.action), ['guard']);
     const command = { type: 'match-choice', matchId: pending.matchId, window: pending.window, kind: 'night-action', choice: 1 };
     assert.equal((await action(base, code, outsider, command, 409)).code, 'MATCH_ACTION');
-    base = await start({ matchRules: fixtureRules });
+    base = await start({ matchRules });
     const replacement = { ...guard, tab: randomUUID() };
     const restored = (await roomApi(base, code, replacement, 'resume')).match;
     assert.equal(restored.window, pending.window);
