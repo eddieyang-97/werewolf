@@ -45,15 +45,17 @@ export function matchView(match, seat) {
     timer: match.timer,
     departed: match.players.filter(person => person.announced).map(person => person.seat),
     history: match.history,
-    self: {
+  };
+  if (player) {
+    result.self = {
       inspections: player.privateEvents,
       copied: player.copy?.role,
       disguise: player.form,
       model: player.model,
       canSelfDestruct: canSelfDestruct(match, player),
       ...privateNight(match, player),
-    },
-  };
+    };
+  }
   if (electionOpen(match) && match.phase !== 'sheriff-signup') result.candidates = match.election.candidates;
   if (match.winner) {
     result.winner = match.winner;

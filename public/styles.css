@@ -144,6 +144,7 @@ img.seat-avatar { background: #f3f3f3; object-fit: cover; }
 .seat-state { width: min(100%, 112px); display: grid; grid-auto-flow: column; justify-content: center; align-items: center; gap: 3px; min-height: 30px; padding: 3px; color: #777; background: var(--page); box-shadow: 0 5px 10px #0003; font-size: .78rem; }
 .seat-state.present { color: var(--green-text); }
 .seat-state.eliminated { color: #b92525; }
+.seat[data-action="confirm-replacement"] .seat-state { color: var(--green-text); }
 .waiting { color: var(--muted); font-size: .8rem; margin-top: 9px; overflow-wrap: anywhere; }
 .connection { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--green-text); gap: 6px; margin-bottom: 9px; }
 .panel + .button { margin-top: 14px; }

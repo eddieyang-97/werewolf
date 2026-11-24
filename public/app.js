@@ -29,6 +29,7 @@ let customQuery = '';
 let code;
 let lobby;
 let info;
+let joinDraft;
 let credential;
 let waiting = false;
 let connected = false;
@@ -121,10 +122,12 @@ function avatarField(avatar) {
   </div>`;
 }
 
-function profileForm(action, label, guest) {
-  return `<form data-form="${action}" class="stack">
-    ${guest ? '' : '<label for="nickname">你的昵称</label><input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称">'}
-    ${avatarField(guest?.avatar)}
+function profileForm(action, label, guest, draft) {
+  const { name, avatar } = guest ? {} : draft ?? { name: '' };
+  const preview = guest ? guest.avatar : avatar && `${jpegPrefix}${avatar}`;
+  return `<form data-form="${action}" class="stack"${avatar ? ` data-avatar="${escape(avatar)}"` : ''}>
+    ${guest ? '' : `<label for="nickname">你的昵称</label><input id="nickname" name="nickname" autocomplete="nickname" maxlength="40" required placeholder="输入昵称" value="${escape(name)}">`}
+    ${avatarField(preview)}
     <button class="button primary" type="submit">${label}</button>
   </form>`;
 }
@@ -158,7 +161,7 @@ const customTabs = { wolves: '狼人阵营', village: '好人阵营', other: '�
 
 function customOptions() {
   if (customTab === 'settings' && !customQuery) {
-    const settings = { 获胜条件: '屠边', 明牌暗牌: '暗牌', 首夜狼刀: '首夜有刀', 女巫自救: '不能自救' };
+    const settings = { 获胜条件: '屠边', 明牌暗牌: '暗牌', 首夜狼刀: '首夜有刀', 女巫自救: '不能自救', 观战设置: '满座后可观战' };
     return `<dl class="custom-settings">${Object.entries(settings).map(([name, value]) =>
       `<div><dt>${name}</dt><dd>${value}</dd></div>`).join('')}</dl>`;
   }
@@ -207,15 +210,17 @@ const phases = { lobby: '准备中', dealt: '确认身份中', ready: '身份确
 function seatTile(guest, index) {
   const seat = index + 1;
   const mine = guest?.id === lobby.self.id;
-  const playable = lobby.state === 'lobby' && connected && (!guest || mine);
+  const playable = !lobby.self.spectator && lobby.state === 'lobby' && connected && (!guest || mine);
+  const canReplace = connected && lobby.self.canRequestReplacement && guest && !guest.connected && !guest.host
+    && lobby.self.replacementSeat !== seat;
   const name = guest?.name ?? '空座位';
-  const label = mine && playable ? '点击起立' : name;
+  const label = canReplace ? `申请替补 ${name}` : mine && playable ? '点击起立' : name;
   const out = lobby.match?.departed.includes(seat);
-  const sub = !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : '已坐下';
+  const sub = canReplace ? '离线 · 申请替补' : !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : '已坐下';
   const image = guest?.avatar ?? (guest ? null : '/art/empty-seat.png');
   const avatar = image ? `<img class="seat-avatar" src="${escape(image)}" width="36" height="36" alt="">`
     : `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>`;
-  return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="seat" data-value="${seat}" aria-label="${seat}号座，${escape(label)}" ${playable ? '' : 'disabled'}>
+  return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="${canReplace ? 'confirm-replacement' : 'seat'}" data-value="${canReplace ? guest.id : seat}" aria-label="${seat}号座，${escape(label)}" ${playable || canReplace ? '' : 'disabled'}>
     <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}${lobby.match?.sheriff === seat ? '<span class="sheriff-label">警长</span>' : ''}</span>
     <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
     <span class="seat-state${out ? ' eliminated' : guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected && !out ? '✓' : 'ⓘ'}</span> ${sub}</span>
@@ -226,10 +231,10 @@ function roomScreen() {
   if (roomError) return `<h1>房间 ${code}</h1><p class="panel">${escape(roomError)}</p>${button('返回首页', 'home', { variant: 'secondary' })}`;
   if (!lobby) {
     if (!info) return `<h1>房间 ${code}</h1><p role="status">正在连接…</p>`;
-    if (info.full || info.state !== 'lobby') {
-      return `<h1>房间 ${code}</h1><p class="panel">房间已满。</p>${button('返回首页', 'home', { variant: 'secondary' })}`;
-    }
-    return `<h1>房间 ${code}</h1><p class="board-name">${boardDetails(info.board, info.lineup).name}</p>${profileForm('join-room', '加入房间')}`;
+    const boardName = boardDetails(info.board, info.lineup).name;
+    if (info.full) return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>
+      <p class="panel">座位已满，可以观战。</p>${profileForm('spectate-room', '观战', null, joinDraft)}`;
+    return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>${profileForm('join-room', '加入房间', null, joinDraft)}`;
   }
   const { self, seats, state } = lobby;
   const seatedCount = seats.filter(Boolean).length;
@@ -238,10 +243,14 @@ function roomScreen() {
   const phaseSummary = state === 'lobby' ? `${seatedCount} / ${seats.length} 已入座` : `${acknowledgements} / ${seats.length} 已确认`;
   const phaseInstruction = state === 'lobby' ? '点击空座位坐下，点击自己可站起来'
     : state === 'ready' ? '全部身份已确认' : '请查看并确认身份';
+  const requests = lobby.replacementRequests?.length;
+  const replacementStatus = self.replacementSeat
+    ? `已申请替补 ${self.replacementSeat} 号座，等待房主同意。${button('撤回申请', 'replacement-cancel', { variant: 'quiet', disabled: !connected })}`
+    : self.canRequestReplacement ? '可以点击离线座位申请替补。' : '当前为观战模式。';
   return `<h1 class="screen-reader-only">${boardName}</h1>
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
-      ${button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
+      ${self.spectator ? '' : button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
       ${self.host && (state === 'lobby' || lobby.match?.canAbandon) ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
@@ -250,20 +259,23 @@ function roomScreen() {
       <div class="room-meta">
         <div><span class="meta-label">房间编号：</span><strong class="room-code">${code}</strong></div>
         <div><span class="meta-label">房间状态：</span><strong>${phases[state]}</strong></div>
-        <div><span class="meta-label">我的座位：</span><strong>${self.seat ?? '未入座'}</strong></div>
-        ${button('查看我的身份', 'reveal', { variant: 'secondary', disabled: !connected || state === 'lobby' })}
+        <div><span class="meta-label">我的座位：</span><strong>${self.spectator ? '观战中' : self.seat ?? '未入座'}</strong></div>
+        ${self.spectator ? '' : button('查看我的身份', 'reveal', { variant: 'secondary', disabled: !connected || state === 'lobby' })}
       </div>
     </section>
     <div class="stack room-actions">
       ${button('邀请好友', 'invite')}
       ${state === 'lobby' && self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}
       ${state === 'ready' && Object.hasOwn(lobby, 'canStart') ? button('开始游戏', 'confirm-start', { disabled: !connected || !lobby.canStart }) : ''}
+      ${requests ? button(`替补申请（${requests}）`, 'replacement-requests', { variant: 'secondary', disabled: !connected }) : ''}
     </div>
-    ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此座位。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
+    ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
-    ${lobby.match ? matchPanel(lobby.match, button, connected) : `<div class="phase-panel"><strong>${phaseInstruction}</strong><span>${phaseSummary}</span></div>`}
+    ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
+    ${lobby.match ? matchPanel(lobby.match, button, connected) : `<div class="phase-panel">${self.spectator ? '' : `<strong>${phaseInstruction}</strong>`}<span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="${seats.length} 个座位">${seats.map(seatTile).join('')}</section>
-    ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}`;
+    ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
+    ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
 }
 
 function render() {
@@ -326,6 +338,10 @@ function roomRequest(operation, body = {}, options = {}) {
 
 function applyLobby(next) {
   const changed = !connected || JSON.stringify(next) !== JSON.stringify(lobby);
+  if (lobby && next.self.spectator !== lobby.self.spectator) {
+    dialog.close();
+    message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
+  }
   lobby = next;
   connected = true;
   takenOver = false;
@@ -405,6 +421,7 @@ async function go(path, replace = false) {
   dialog.close();
   lobby = null;
   info = null;
+  joinDraft = null;
   retryAction = undefined;
   roomError = '';
   credential = null;
@@ -545,7 +562,8 @@ async function submit(event) {
     } else {
       credential ??= read(pendingJoinKey(code)) ?? newToken();
       write(pendingJoinKey(code), credential);
-      const next = await roomRequest('join', { name, avatar });
+      const spectate = form.dataset.form === 'spectate-room';
+      const next = await roomRequest('join', { name, avatar, spectate });
       if (period === epoch) {
         applyLobby(next);
         schedulePoll(1_800);
@@ -556,6 +574,15 @@ async function submit(event) {
       if (error.code === 'SESSION_ENDED' && screen === 'room') {
         credential = null;
         write(pendingJoinKey(code), null);
+      }
+      if (info && ((error.code === 'FULL' && !info.full) || error.code === 'SEATS_AVAILABLE')) {
+        const latest = await request(endpoint()).catch(() => null);
+        if (period !== epoch) return;
+        if (latest && latest.full !== info.full) {
+          joinDraft = { name, avatar };
+          info = latest;
+          render();
+        }
       }
       message(error.code ? error.message : '连接失败，请重试。');
     }
@@ -591,7 +618,7 @@ async function action(type, details = {}) {
     if (error.code) {
       retryAction = undefined;
       if (['TAKEN_OVER', 'SESSION_ENDED', 'ROOM_GONE'].includes(error.code)) handleRoomError(error);
-      if (error.code === 'MATCH_ACTION') dialog.close();
+      if (['MATCH_ACTION', 'REPLACEMENT_UNAVAILABLE'].includes(error.code)) dialog.close();
     } else handleRoomError(error);
     message(error.code ? error.message : '连接中断，请重试。');
   } finally {
@@ -759,6 +786,24 @@ async function click(event) {
     case 'config': return showDialog('本局配置', boardPreview(lobby.board, lobby.lineup, true));
     case 'seat':
       return Number(value) === lobby.self.seat ? action('stand') : action('seat', { seat: Number(value) });
+    case 'confirm-replacement': {
+      const target = lobby.seats.find(guest => guest?.id === value);
+      if (target) return confirm('申请替补', `申请接替 ${target.seat} 号座的 ${target.name}？`, 'replacement-request', '提交申请', target.id);
+      return;
+    }
+    case 'replacement-request': return action(command, { target: value });
+    case 'replacement-cancel': return action(command);
+    case 'replacement-requests': {
+      const requests = lobby.replacementRequests.map(request => `<li><span>${escape(request.name)} 申请替补 ${request.seat} 号座</span>
+        ${button('同意', 'confirm-approval', { variant: 'secondary', value: request.id })}</li>`).join('');
+      return showDialog('替补申请', requests ? `<ul class="guest-list">${requests}</ul>` : '<p>暂无待处理申请。</p>');
+    }
+    case 'confirm-approval': {
+      const request = lobby.replacementRequests.find(entry => entry.id === value);
+      if (request) return confirm('确认替补', `让 ${request.name} 接替 ${request.seat} 号座？原玩家将转为观战。`, 'replacement-approve', '确认替补', value);
+      return dialog.close();
+    }
+    case 'replacement-approve': return action(command, { target: value });
     case 'confirm-deal':
       return confirm('发放身份', '发放后座位锁定，每位玩家只可查看自己的身份。', 'deal', '确认发放');
     case 'deal': return action('deal');

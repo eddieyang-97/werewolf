@@ -11,6 +11,7 @@ const RETENTION = 24 * 60 * 60 * 1000;
 const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const AVATAR_SIZE = 128;
 const AVATAR_BYTES = 12_288;
+const SPECTATOR_LIMIT = 24;
 
 export class RoomError extends Error {
   constructor(status, code, message) {
@@ -78,7 +79,7 @@ function guestFor(room, key) {
 }
 
 function seesTab(guest, tab) {
-  if (guest.tab !== tab) roomError(409, 'TAKEN_OVER', '另一个页面正在使用这个座位。');
+  if (guest.tab !== tab) roomError(409, 'TAKEN_OVER', '另一个页面正在使用此房间会话。');
 }
 
 function isOnline(guest, now) {
@@ -86,8 +87,20 @@ function isOnline(guest, now) {
 }
 
 function refreshPresence(room, guest, now) {
+  if (guest.seat !== null && !isOnline(guest, now)) clearReplacementRequests(room, guest.id);
   guest.lastSeen = now;
   room.expiresAt = now + ONLINE_WINDOW + RETENTION;
+}
+
+function clearReplacementRequests(room, target) {
+  for (const guest of room.guests) {
+    if (guest.replacement?.target === target) delete guest.replacement;
+  }
+}
+
+function replacementTarget(room, id, now) {
+  if (!id || room.match?.winner || id === room.hostId) return;
+  return room.guests.find(guest => guest.id === id && guest.seat !== null && !isOnline(guest, now));
 }
 
 function refreshMatchTimer(room, now) {
@@ -116,6 +129,7 @@ function presentGuest(guest, room, now) {
     connected: isOnline(guest, now),
     host: guest.id === room.hostId,
     acknowledged: guest.acknowledged,
+    ...(guest.spectator ? { spectator: true } : {}),
   };
 }
 
@@ -141,6 +155,7 @@ function publicStatus(room, now) {
 
 function snapshot(room, viewer, now, matchRules) {
   const { seated, ...status } = publicStatus(room, now);
+  const watching = room.guests.filter(guest => guest.spectator && isOnline(guest, now));
   const result = {
     ...status,
     canDeal: status.canDeal && viewer.id === room.hostId,
@@ -148,9 +163,20 @@ function snapshot(room, viewer, now, matchRules) {
       const guest = seated.find(item => item.seat === index + 1);
       return guest ? presentGuest(guest, room, now) : null;
     }),
-    waiting: room.guests.filter(guest => guest.seat === null).map(guest => presentGuest(guest, room, now)),
+    waiting: room.guests.filter(guest => guest.seat === null && !guest.spectator).map(guest => presentGuest(guest, room, now)),
     self: presentGuest(viewer, room, now),
+    spectatorCount: watching.length,
   };
+  if (viewer.spectator) {
+    result.self.canRequestReplacement = !viewer.replaced && !room.match?.winner;
+    result.self.replacementSeat = replacementTarget(room, viewer.replacement?.target, now)?.seat ?? null;
+  }
+  if (viewer.id === room.hostId) {
+    result.replacementRequests = watching.flatMap(spectator => {
+      const target = replacementTarget(room, spectator.replacement?.target, now);
+      return target ? [{ id: spectator.replacement.id, name: spectator.name, seat: target.seat }] : [];
+    });
+  }
   if (matchRules && viewer.id === room.hostId && status.state === 'ready') {
     result.canStart = status.full && seated.every(guest => isOnline(guest, now));
   }
@@ -169,8 +195,40 @@ function assertLobby(room) {
   if (room.dealt) roomError(409, 'LOCKED', '身份已发放，座位已锁定。');
 }
 
+function approveReplacement(room, command, now) {
+  const spectator = room.guests.find(guest => guest.spectator && guest.replacement && guest.replacement.id === command.target);
+  const target = spectator?.replacement && replacementTarget(room, spectator.replacement.target, now);
+  if (!target || !isOnline(spectator, now)) roomError(409, 'REPLACEMENT_UNAVAILABLE', '该替补申请已失效。');
+
+  spectator.seat = target.seat;
+  if (target.assignment) spectator.assignment = target.assignment;
+  spectator.acknowledged = Boolean(room.match);
+  delete spectator.spectator;
+  clearReplacementRequests(room, target.id);
+
+  target.seat = null;
+  target.spectator = true;
+  if (room.dealt) target.replaced = true;
+  delete target.assignment;
+  target.revealed = target.acknowledged = false;
+}
+
 function applyAction(room, guest, command, now, matchRules) {
   switch (command.type) {
+    case 'replacement-request':
+      if (!guest.spectator || guest.replaced || !replacementTarget(room, command.target, now)) {
+        roomError(409, 'REPLACEMENT_UNAVAILABLE', '该座位目前无法替补。');
+      }
+      guest.replacement = { id: randomUUID(), target: command.target };
+      return;
+    case 'replacement-cancel':
+      if (!guest.spectator) roomError(409, 'REPLACEMENT_UNAVAILABLE', '该替补申请已失效。');
+      delete guest.replacement;
+      return;
+    case 'replacement-approve':
+      assertHost(room, guest);
+      approveReplacement(room, command, now);
+      return;
     case 'seat': {
       assertLobby(room);
       if (!Number.isInteger(command.seat) || command.seat < 1 || command.seat > seatsIn(room)) {
@@ -196,6 +254,7 @@ function applyAction(room, guest, command, now, matchRules) {
       const targetIndex = room.guests.findIndex(item => item.id === command.target);
       if (targetIndex < 0) roomError(404, 'GUEST_GONE', '该玩家已离开。');
       const [removed] = room.guests.splice(targetIndex, 1);
+      clearReplacementRequests(room, removed.id);
       (room.revoked ??= []).push(removed.key);
       return;
     }
@@ -207,7 +266,7 @@ function applyAction(room, guest, command, now, matchRules) {
       const deck = shuffle(buildDeck(room.board, undefined, room.lineup));
       const seatedIds = new Set(seated.map(item => item.id));
       for (const player of seated) player.assignment = deck[player.seat - 1];
-      room.guests = room.guests.filter(item => seatedIds.has(item.id));
+      room.guests = room.guests.filter(item => seatedIds.has(item.id) || item.spectator);
       room.dealt = true;
       return;
     }
@@ -296,7 +355,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
       });
     },
 
-    join(code, name, token, tab, avatar) {
+    join(code, name, token, tab, avatar, spectate = false) {
       validateTab(tab);
       const key = tokenKey(token);
       return withRoom(code, (room, now) => {
@@ -304,14 +363,24 @@ export function createRooms(store, clock = Date.now, matchRules) {
         let guest = room.guests.find(item => item.key === key);
         if (!guest) {
           const status = publicStatus(room, now);
-          if (status.full || room.guests.length >= 24) roomError(409, 'FULL', '房间已满。');
-          assertLobby(room);
+          if (spectate) {
+            if (!status.full) roomError(409, 'SEATS_AVAILABLE', '房间有空座，请加入房间。');
+            if (room.guests.filter(item => item.spectator).length >= SPECTATOR_LIMIT) {
+              roomError(409, 'SPECTATORS_FULL', '观战人数已满。');
+            }
+          } else {
+            if (status.full || room.guests.filter(item => !item.spectator).length >= 24) {
+              roomError(409, 'FULL', '房间已满。');
+            }
+            assertLobby(room);
+          }
           const nickname = validateNickname(name);
           if (room.guests.some(item => item.name.toLowerCase() === nickname.toLowerCase())) {
             roomError(409, 'NAME_TAKEN', '该昵称已被使用。');
           }
           guest = newGuest(nickname, key, tab, now);
           guest.avatar = validateAvatar(avatar);
+          if (spectate) guest.spectator = true;
           room.guests.push(guest);
         } else {
           seesTab(guest, tab);
@@ -365,6 +434,9 @@ export function createRooms(store, clock = Date.now, matchRules) {
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         seesTab(guest, tab);
+        if (guest.spectator && !['replacement-request', 'replacement-cancel'].includes(command.type)) {
+          roomError(403, 'SPECTATOR_ONLY', '观战时无法执行玩家操作。');
+        }
         const previous = guest.receipts.find(receipt => receipt.id === command.id);
         if (previous && previous.signature !== signature) roomError(409, 'ACTION_ID', '此操作凭证已被使用。');
         refreshMatchTimer(room, now);

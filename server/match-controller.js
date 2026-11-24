@@ -14,7 +14,7 @@ function nightOrder(board, rules) {
 }
 
 export function startMatch(room, rules) {
-  room.match = createMatch(room.board, room.guests);
+  room.match = createMatch(room.board, room.guests.filter(guest => guest.seat !== null));
   beginNight(room.match, nightOrder(room.board, rules), rules);
 }
 
@@ -31,6 +31,7 @@ function getBallot(match) {
 
 function controls(match, player, host, rules) {
   const actions = [];
+  if (!player) return actions;
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
 
   if (canSelfDestruct(match, player)) add('self-destruct');
@@ -180,6 +181,8 @@ export function executeMatchChoice(room, guest, command, rules, now) {
     room.dealt = false;
     for (const participant of room.guests) {
       delete participant.assignment;
+      delete participant.replacement;
+      delete participant.replaced;
       participant.revealed = false;
       participant.acknowledged = false;
     }
