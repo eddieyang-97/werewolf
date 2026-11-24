@@ -70,6 +70,6 @@ export const boards = {
   },
   thief: {
     name: '盗宝大师',
-    preview: [...fourVillagers, ...threeWolves, 'thief', 'masked', null, null, null],
+    preview: [...fourVillagers, 'wolf', 'wolf', 'wolfKing', 'thief', 'masked', null, null, null],
   },
 };

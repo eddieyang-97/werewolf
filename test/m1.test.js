@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import test, { describe } from 'node:test';
 import jpeg from 'jpeg-js';
 import { Client } from 'pg';
-import { thiefDraw } from '../public/boards.js';
+import { boards, thiefDraw } from '../public/boards.js';
 import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
 import { matchRules } from '../server/match-rules.js';
@@ -146,7 +146,7 @@ function assertRoster(board, assignments) {
     const drawn = thief.extra?.[0];
     assert.ok(thiefPowerRoles.includes(drawn), 'Thief must draw an eligible power role');
     assert.deepEqual(thief.extra, [drawn, 'villager']);
-    expected = ['wolf', 'wolf', 'wolf', 'thief', 'villager', 'villager', 'villager', 'villager', 'masked',
+    expected = ['wolf', 'wolf', 'wolfKing', 'thief', 'villager', 'villager', 'villager', 'villager', 'masked',
       ...thiefPowerRoles.filter(role => role !== drawn)];
   }
   assert.deepEqual(assignments.map(card => card.role).sort(), [...expected].sort());
@@ -157,6 +157,8 @@ function assertRoster(board, assignments) {
 
 test('each Thief draw preserves the four ordinary power roles and 14 cards', () => {
   assert.deepEqual([...thiefDraw].sort(), [...thiefPowerRoles].sort());
+  assert.deepEqual(boards.thief.preview.filter(role => ['wolf', 'wolfKing', 'thief'].includes(role)).sort(),
+    ['thief', 'wolf', 'wolf', 'wolfKing']);
   for (const [index, choice] of thiefDraw.entries()) {
     const deck = buildDeck('thief', count => {
       assert.equal(count, 4);
@@ -169,7 +171,8 @@ test('each Thief draw preserves the four ordinary power roles and 14 cards', () 
     assert.equal(deck.some(card => card.role === choice), false);
     assert.equal(deck.filter(card => card.role === 'masked').length, 1);
     assert.equal(deck.filter(card => card.role === 'villager').length, 4);
-    assert.equal(deck.filter(card => card.role === 'wolf').length, 3);
+    assert.equal(deck.filter(card => card.role === 'wolf').length, 2);
+    assert.equal(deck.filter(card => card.role === 'wolfKing').length, 1);
     assertRoster('thief', deck);
   }
 });

@@ -259,7 +259,7 @@ test('the last wolf exploding before dawn publication wins for good before Maske
   assert.equal(match.phase, 'dawn');
   assert.equal(match.day.published, undefined);
   assert.deepEqual(match.players.filter(player => !player.death).map(player => player.role),
-    ['wolf', 'villager', 'villager', 'villager', 'villager', 'masked']);
+    ['wolfKing', 'villager', 'villager', 'villager', 'villager', 'masked']);
   assert.equal(playerAt(match, masked.seat).delayedDeath.cause, 'wolfKnife');
 
   play(lastWolf, 'self-destruct');
@@ -271,6 +271,70 @@ test('the last wolf exploding before dawn publication wins for good before Maske
   assert.equal(result.departed.includes(lastWolf.seat), true);
   assert.ok(result.history.some(event => event.round === 3 && event.kind === 'explosion' && event.seat === lastWolf.seat));
   assert.deepEqual(result.history.find(event => event.round === 3 && event.kind === 'night-result').seats, []);
+});
+
+test('Thief preset Wolf King retains red-wolf knife rights, reports double claws and can shoot before inheritance', () => {
+  const room = createRoom('thief', 2); // Thief holds Hunter; Medium and Poisoner are ordinary gods.
+  const [wolfA, wolfB, king, host, victim] = room.guests;
+  room.hostId = host.id;
+  const guestWith = role => room.guests.find(guest => guest.assignment.role === role);
+  const thief = guestWith('thief');
+  const medium = guestWith('medium');
+  const dreamer = guestWith('dreamer');
+  const poisoner = guestWith('poisoner');
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  const night = (guest, action, choice) => {
+    const control = controls(room, guest).actions?.find(entry => entry.action === action);
+    assert.ok(control, `${action} must be available to seat ${guest.seat}`);
+    choose(room, guest, control, choice);
+  };
+  startMatch(room, matchRules);
+  const { match } = room;
+  function exile(target) {
+    while (['last-words', 'discussion'].includes(match.phase)) play(host, 'finish-speech');
+    play(host, 'open-exile');
+    for (const guest of room.guests) {
+      if (!playerAt(match, guest.seat).death) play(guest, 'vote', guest === target ? null : target.seat);
+    }
+    assert.equal(match.phase, 'last-words');
+    play(host, 'finish-speech');
+  }
+
+  assert.deepEqual(match.night.wolves, []);
+  assert.deepEqual(controls(room, king).self.teammates, [wolfA.seat, wolfB.seat]);
+  assert.deepEqual(controls(room, wolfB).self.teammates, [wolfA.seat, king.seat]);
+  assert.equal(controls(room, thief).self.teammates, undefined);
+  night(thief, 'thief-start', 'common');
+  night(dreamer, 'dreamer', null);
+  night(poisoner, 'poison', wolfA.seat);
+  night(medium, 'medium', king.seat);
+  assert.equal(controls(room, medium).self.inspections[0].claws, 2);
+  play(host, 'open-election');
+  for (const guest of room.guests) play(guest, 'candidacy', false);
+  play(host, 'publish-night');
+  exile(wolfB);
+
+  play(host, 'next-night');
+  assert.deepEqual(match.night.wolves, [king.seat]);
+  night(dreamer, 'dreamer', null);
+  const knife = controls(room, king).actions.find(action => action.action === 'knife');
+  assert.ok(!knife.options.includes(king.seat));
+  assert.ok(!controls(room, thief).actions?.some(action => action.action === 'knife'));
+  night(king, 'knife', null);
+  night(medium, 'medium', thief.seat);
+  assert.equal(controls(room, medium).self.inspections.at(-1).role, 'hunter');
+  night(thief, 'gun-check', 'confirm');
+  play(host, 'publish-night');
+  exile(king);
+  assert.equal(controls(room, king).actions[0].role, 'wolfKing');
+  play(king, 'shoot', victim.seat);
+  assert.equal(match.phase, 'last-words');
+  play(host, 'finish-speech');
+
+  play(host, 'next-night');
+  assert.deepEqual(match.night.wolves, [thief.seat]);
+  night(dreamer, 'dreamer', null);
+  assert.ok(controls(room, thief).actions.some(action => action.action === 'knife'));
 });
 
 test('the Witch privately sees the normal knife while retaining the antidote and can use only one potion', () => {

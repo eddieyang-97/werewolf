@@ -81,7 +81,7 @@ test('night effects arbitrate milk death, poison reflection, dream protection an
 });
 
 test('Thief has no first-night normal knife and picks up the same Dreamer use across a civilian night', () => {
-  const match = setup('thief', ['wolf', 'wolf', 'wolf', { role: 'thief', extra: ['dreamer', 'villager'] },
+  const match = setup('thief', ['wolf', 'wolf', 'wolfKing', { role: 'thief', extra: ['dreamer', 'villager'] },
     'masked', 'poisoner', 'medium', 'hunter', ...defaults.slice(8)]);
   beginNight(match, ['thief-start']);
   assert.deepEqual(match.night.wolves, []);
@@ -224,7 +224,7 @@ test('N1 Hunter last words and shot happen before a badge transfer, with shot vi
 });
 
 test('Masked remains in play until their D1 speech ends and no second set of last words is added', () => {
-  const match = setup('thief', ['wolf', 'wolf', 'wolf', { role: 'thief', extra: ['dreamer', 'villager'] },
+  const match = setup('thief', ['wolf', 'wolf', 'wolfKing', { role: 'thief', extra: ['dreamer', 'villager'] },
     'masked', 'poisoner', 'medium', 'hunter', ...defaults.slice(8)]);
   match.round = 1;
   match.night = { poisons: [{ source: 6, target: 5 }] };

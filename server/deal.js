@@ -16,7 +16,7 @@ export function buildDeck(board, choose = randomInt, lineup) {
   }
   if (board !== 'thief') throw new TypeError('Unknown board');
   const selected = thiefDraw[choose(thiefDraw.length)];
-  const deck = [...wolves, ...villagers, 'masked', ...thiefDraw.filter(role => role !== selected)]
+  const deck = ['wolf', 'wolf', 'wolfKing', ...villagers, 'masked', ...thiefDraw.filter(role => role !== selected)]
     .map(role => ({ role }));
   return [...deck, { role: 'thief', extra: [selected, 'villager'] }];
 }
