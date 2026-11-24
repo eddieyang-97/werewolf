@@ -2,6 +2,8 @@ import { createHash, randomInt, randomUUID } from 'node:crypto';
 import jpeg from 'jpeg-js';
 import { boards } from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
+import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
+import { publicSpeaker } from './match-view.js';
 
 const SEAT_COUNT = 12;
 const ONLINE_WINDOW = 15_000;
@@ -89,6 +91,23 @@ function refreshPresence(room, guest, now) {
   room.expiresAt = now + ONLINE_WINDOW + RETENTION;
 }
 
+function refreshMatchTimer(room, now) {
+  const match = room.match;
+  if (!match?.timer) return false;
+  const speaker = room.guests.find(guest => guest.seat === publicSpeaker(match));
+  const { deadline, remaining } = match.timer;
+  if (isOnline(speaker, now) && remaining > 0) {
+    match.timer = { deadline: now + remaining };
+    return true;
+  }
+  if (!isOnline(speaker, now) && deadline) {
+    const cutoff = speaker?.lastSeen == null ? now : Math.min(now, speaker.lastSeen + ONLINE_WINDOW);
+    match.timer = { remaining: Math.max(0, deadline - cutoff) };
+    return true;
+  }
+  return false;
+}
+
 function presentGuest(guest, room, now) {
   return {
     id: guest.id,
@@ -103,10 +122,11 @@ function presentGuest(guest, room, now) {
 
 function publicStatus(room, now) {
   const seated = room.guests.filter(guest => guest.seat !== null);
+  const ready = room.dealt && seated.every(guest => guest.acknowledged);
   return {
     code: room.code,
     board: room.board,
-    state: room.dealt ? (seated.every(guest => guest.acknowledged) ? 'ready' : 'dealt') : 'lobby',
+    state: room.match ? (room.match.winner ? 'finished' : 'playing') : ready ? 'ready' : room.dealt ? 'dealt' : 'lobby',
     full: seated.length === SEAT_COUNT,
     seated,
     canDeal: !room.dealt && seated.length === SEAT_COUNT && seated.some(guest => guest.id === room.hostId)
@@ -114,9 +134,9 @@ function publicStatus(room, now) {
   };
 }
 
-function snapshot(room, viewer, now) {
+function snapshot(room, viewer, now, matchRules) {
   const { seated, ...status } = publicStatus(room, now);
-  return {
+  const result = {
     ...status,
     canDeal: status.canDeal && viewer.id === room.hostId,
     seats: Array.from({ length: SEAT_COUNT }, (_, index) => {
@@ -126,6 +146,14 @@ function snapshot(room, viewer, now) {
     waiting: room.guests.filter(guest => guest.seat === null).map(guest => presentGuest(guest, room, now)),
     self: presentGuest(viewer, room, now),
   };
+  if (matchRules && viewer.id === room.hostId && status.state === 'ready') {
+    result.canStart = status.full && seated.every(guest => isOnline(guest, now));
+  }
+  if (matchRules && room.match) {
+    result.match = controllerView(room.match, viewer.seat, viewer.id === room.hostId, matchRules);
+    if (viewer.id === room.hostId && !room.match.winner) result.match.canAbandon = room.match.id;
+  }
+  return result;
 }
 
 function assertHost(room, guest) {
@@ -136,7 +164,7 @@ function assertLobby(room) {
   if (room.dealt) roomError(409, 'LOCKED', '身份已发放，座位已锁定。');
 }
 
-function applyAction(room, guest, command, now) {
+function applyAction(room, guest, command, now, matchRules) {
   switch (command.type) {
     case 'seat': {
       assertLobby(room);
@@ -186,12 +214,34 @@ function applyAction(room, guest, command, now) {
       if (!guest.revealed) roomError(409, 'NOT_REVEALED', '请先查看自己的身份。');
       guest.acknowledged = true;
       return;
+    case 'match-start': {
+      if (!matchRules) roomError(409, 'MATCH_UNAVAILABLE', '当前房间暂未开放正式对局。');
+      assertHost(room, guest);
+      const { state, full, seated } = publicStatus(room, now);
+      if (state !== 'ready' || !full || !seated.every(player => isOnline(player, now))) {
+        roomError(409, 'NOT_READY', '所有玩家确认身份并在线后才可开始对局。');
+      }
+      startMatch(room, matchRules);
+      return;
+    }
+    case 'match-choice':
+      if (!matchRules || !executeMatchChoice(room, guest, command, matchRules, now)) {
+        roomError(409, 'MATCH_ACTION', '当前无法执行此对局操作，请刷新进度。');
+      }
+      return;
+    case 'match-abandon':
+      assertHost(room, guest);
+      if (!matchRules || !room.match || room.match.winner || room.match.id !== command.matchId) {
+        roomError(409, 'MATCH_ACTION', '当前无法结束此对局。');
+      }
+      abandonMatch(room.match);
+      return;
     default:
       roomError(400, 'ACTION', '无法识别此操作。');
   }
 }
 
-export function createRooms(store, clock = Date.now) {
+export function createRooms(store, clock = Date.now, matchRules) {
   function withRoom(code, action) {
     const now = clock();
     return store.room(code, now, room => {
@@ -254,7 +304,7 @@ export function createRooms(store, clock = Date.now) {
           seesTab(guest, tab);
         }
         refreshPresence(room, guest, now);
-        return { changed: true, value: snapshot(room, guest, now) };
+        return { changed: true, value: snapshot(room, guest, now, matchRules) };
       });
     },
 
@@ -264,12 +314,14 @@ export function createRooms(store, clock = Date.now) {
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         if (!takeControl) seesTab(guest, tab);
-        const changed = guest.tab !== tab || guest.lastSeen === null || now - guest.lastSeen >= HEARTBEAT_INTERVAL;
-        if (changed) {
+        const timerChanged = refreshMatchTimer(room, now);
+        const presenceChanged = guest.tab !== tab || guest.lastSeen === null || now - guest.lastSeen >= HEARTBEAT_INTERVAL;
+        if (presenceChanged) {
           guest.tab = tab;
           refreshPresence(room, guest, now);
         }
-        return { changed, value: snapshot(room, guest, now) };
+        const timerResumed = refreshMatchTimer(room, now);
+        return { changed: presenceChanged || timerChanged || timerResumed, value: snapshot(room, guest, now, matchRules) };
       });
     },
 
@@ -279,7 +331,9 @@ export function createRooms(store, clock = Date.now) {
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         if (guest.tab !== tab) return { value: {} };
+        refreshMatchTimer(room, now);
         guest.lastSeen = null;
+        refreshMatchTimer(room, now);
         if (!room.guests.some(item => isOnline(item, now))) room.expiresAt = now + RETENTION;
         return { changed: true, value: {} };
       });
@@ -289,21 +343,26 @@ export function createRooms(store, clock = Date.now) {
       validateTab(tab);
       if (!validId(command.id)) roomError(400, 'ACTION_ID', '操作凭证无效，请重试。');
       const key = tokenKey(token);
-      const signature = command.type === 'avatar'
-        ? createHash('sha256').update(JSON.stringify([command.avatar])).digest('hex')
-        : JSON.stringify([command.type, command.seat, command.target]);
+      let signature = JSON.stringify([command.type, command.seat, command.target]);
+      if (command.type === 'avatar') signature = createHash('sha256').update(JSON.stringify([command.avatar])).digest('hex');
+      if (command.type === 'match-choice') {
+        signature = JSON.stringify([command.type, command.matchId, command.window, command.kind, command.choice]);
+      }
+      if (command.type === 'match-abandon') signature = JSON.stringify([command.type, command.matchId]);
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         seesTab(guest, tab);
         const previous = guest.receipts.find(receipt => receipt.id === command.id);
         if (previous && previous.signature !== signature) roomError(409, 'ACTION_ID', '此操作凭证已被使用。');
+        refreshMatchTimer(room, now);
         refreshPresence(room, guest, now);
         if (!previous) {
-          applyAction(room, guest, command, now);
+          applyAction(room, guest, command, now, matchRules);
           guest.receipts.push({ id: command.id, signature });
           if (guest.receipts.length > 64) guest.receipts.shift();
         }
-        const value = { room: snapshot(room, guest, now) };
+        refreshMatchTimer(room, now);
+        const value = { room: snapshot(room, guest, now, matchRules) };
         if (command.type === 'reveal') value.assignment = guest.assignment;
         return { changed: true, value };
       });
