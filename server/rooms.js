@@ -1,11 +1,10 @@
 import { createHash, randomInt, randomUUID } from 'node:crypto';
 import jpeg from 'jpeg-js';
-import { boards } from '../public/boards.js';
+import { boards, customLineupError, presetSeatCount } from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
 import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
 
-const SEAT_COUNT = 12;
 const ONLINE_WINDOW = 15_000;
 const HEARTBEAT_INTERVAL = 4_000;
 const RETENTION = 24 * 60 * 60 * 1000;
@@ -120,16 +119,22 @@ function presentGuest(guest, room, now) {
   };
 }
 
+function seatsIn(room) {
+  return room.lineup?.length ?? presetSeatCount;
+}
+
 function publicStatus(room, now) {
   const seated = room.guests.filter(guest => guest.seat !== null);
+  const seatCount = seatsIn(room);
   const ready = room.dealt && seated.every(guest => guest.acknowledged);
   return {
     code: room.code,
     board: room.board,
+    ...(room.lineup ? { lineup: room.lineup } : {}),
     state: room.match ? (room.match.winner ? 'finished' : 'playing') : ready ? 'ready' : room.dealt ? 'dealt' : 'lobby',
-    full: seated.length === SEAT_COUNT,
+    full: seated.length === seatCount,
     seated,
-    canDeal: !room.dealt && seated.length === SEAT_COUNT && seated.some(guest => guest.id === room.hostId)
+    canDeal: !room.dealt && seated.length === seatCount && seated.some(guest => guest.id === room.hostId)
       && seated.every(guest => isOnline(guest, now)),
   };
 }
@@ -139,7 +144,7 @@ function snapshot(room, viewer, now, matchRules) {
   const result = {
     ...status,
     canDeal: status.canDeal && viewer.id === room.hostId,
-    seats: Array.from({ length: SEAT_COUNT }, (_, index) => {
+    seats: Array.from({ length: seatsIn(room) }, (_, index) => {
       const guest = seated.find(item => item.seat === index + 1);
       return guest ? presentGuest(guest, room, now) : null;
     }),
@@ -168,7 +173,7 @@ function applyAction(room, guest, command, now, matchRules) {
   switch (command.type) {
     case 'seat': {
       assertLobby(room);
-      if (!Number.isInteger(command.seat) || command.seat < 1 || command.seat > SEAT_COUNT) {
+      if (!Number.isInteger(command.seat) || command.seat < 1 || command.seat > seatsIn(room)) {
         roomError(400, 'SEAT', '请选择有效座位。');
       }
       const occupant = room.guests.find(item => item.seat === command.seat);
@@ -198,8 +203,8 @@ function applyAction(room, guest, command, now, matchRules) {
       assertHost(room, guest);
       assertLobby(room);
       const { seated, canDeal } = publicStatus(room, now);
-      if (!canDeal) roomError(409, 'NOT_READY', '包括房主在内的 12 位玩家都入座并在线后才可发放身份。');
-      const deck = shuffle(buildDeck(room.board));
+      if (!canDeal) roomError(409, 'NOT_READY', '包括房主在内的所有玩家都入座并在线后才可发放身份。');
+      const deck = shuffle(buildDeck(room.board, undefined, room.lineup));
       const seatedIds = new Set(seated.map(item => item.id));
       for (const player of seated) player.assignment = deck[player.seat - 1];
       room.guests = room.guests.filter(item => seatedIds.has(item.id));
@@ -251,9 +256,16 @@ export function createRooms(store, clock = Date.now, matchRules) {
   }
 
   return {
-    async create(board, name, token, tab, avatar) {
+    async create(board, name, token, tab, avatar, lineup) {
       validateTab(tab);
-      if (typeof board !== 'string' || !Object.hasOwn(boards, board)) roomError(400, 'BOARD', '请选择一个板子。');
+      if (board === 'custom') {
+        const error = customLineupError(lineup);
+        if (error) roomError(400, 'LINEUP', error);
+      } else if (typeof board !== 'string' || !Object.hasOwn(boards, board)) {
+        roomError(400, 'BOARD', '请选择一个板子。');
+      } else if (lineup !== undefined) {
+        roomError(400, 'LINEUP', '请选择自定义配置来调整角色。');
+      }
       const key = tokenKey(token);
       const now = clock();
       const host = newGuest(validateNickname(name), key, tab, now);
@@ -262,6 +274,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
       for (let attempt = 0; attempt < 10; attempt++) {
         const code = Array.from({ length: 6 }, () => ROOM_ALPHABET[randomInt(ROOM_ALPHABET.length)]).join('');
         const room = { code, board, hostId: host.id, guests: [host], dealt: false, expiresAt: now + ONLINE_WINDOW + RETENTION };
+        if (board === 'custom') room.lineup = [...lineup];
         const result = await store.create(room, key, now);
         if (result) return { code: result.code };
       }
@@ -270,8 +283,8 @@ export function createRooms(store, clock = Date.now, matchRules) {
 
     info(code) {
       return withRoom(code, (room, now) => {
-        const { board, state, full } = publicStatus(room, now);
-        return { value: { code, board, state, full } };
+        const { board, state, full, lineup } = publicStatus(room, now);
+        return { value: { code, board, state, full, lineup } };
       });
     },
 

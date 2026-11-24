@@ -75,7 +75,9 @@ function controls(match, player, host, rules) {
       if (host) add('finish-speech');
       break;
     case 'gun':
-      if (match.deathFlow.current.death.seat === seat) add('shoot', [...living(), null]);
+      if (match.deathFlow.current.death.seat === seat) {
+        add('shoot', [...living(), null], player.role === 'wolfKing' ? { role: player.role } : undefined);
+      }
       break;
     case 'badge':
       if (match.deathFlow.current.death.seat === seat) add('badge', [...living(), null]);
