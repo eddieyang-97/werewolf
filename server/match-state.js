@@ -1,9 +1,11 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import { defaultSheriffMode } from '../public/boards.js';
 
-export function createMatch(board, guests) {
+export function createMatch(board, guests, sheriffMode = defaultSheriffMode) {
   return {
     id: randomUUID(),
     board,
+    sheriffMode,
     round: 0,
     window: null,
     sheriff: null,

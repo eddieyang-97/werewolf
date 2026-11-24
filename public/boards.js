@@ -20,6 +20,8 @@ export const thiefDraw = ['poisoner', 'dreamer', 'hunter', 'medium'];
 
 export const presetSeatCount = 12;
 export const customBoardName = '自定义配置';
+export const defaultSheriffMode = 'double';
+export const sheriffModes = { double: '双爆吞警徽', single: '单爆吞警徽', none: '无警徽' };
 export const customRoleGroups = {
   wolves: ['wolf', 'wolfKing'],
   village: ['villager', 'seer', 'witch', 'hunter', 'fool', 'guard', 'medium', 'dreamer', 'poisoner', 'masked'],
