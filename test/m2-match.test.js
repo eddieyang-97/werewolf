@@ -86,6 +86,29 @@ function playAction(room, guest, kind, choice) {
   choose(room, guest, action, choice);
 }
 
+test('late wolves can still see their Night 1 teammates privately after recognition advances play', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'wolfKing', 'villager', 'villager']);
+  room.customRules = { victoryMode: 'town', firstNightKnife: 'disabled' };
+  room.sheriffMode = 'none';
+  const [wolf, king, host] = room.guests;
+  room.hostId = host.id;
+  startMatch(room, matchRules);
+
+  playAction(room, wolf, 'night-action', 'confirm');
+  const lateView = controls(room, king);
+  assert.equal(lateView.phase, 'dawn');
+  assert.deepEqual(lateView.self.teammates, [wolf.seat]);
+  assert.equal(lateView.self.nightAction, undefined);
+
+  playAction(room, host, 'publish-night');
+  assert.deepEqual(controls(room, king).self.teammates, [wolf.seat]);
+  assert.equal(controls(room, host).self.teammates, undefined);
+  assert.equal(controllerView(room.match, null, false, matchRules).self, undefined);
+
+  abandonMatch(room.match);
+  assert.equal(controls(room, king).self.teammates, undefined);
+});
+
 test('custom no-knife Night 1 preserves private wolf recognition and Witch self-save works on a later night', () => {
   const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'witch', 'villager', 'villager']);
   room.customRules = { firstNightKnife: 'disabled', witchSelfSave: 'allowed' };
