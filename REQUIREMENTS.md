@@ -20,10 +20,16 @@ Build a mobile browser game for friends playing at the same table or talking on 
 
 ## Mobile match screens
 
-- **Room and seat grid.** Keep the current phase and action above the numbered seats. Show the host, sheriff badge, current speaker, and eliminated seats with clear labels. Keep room code, board details, and the private role card reachable during play.
-- **Player actions.** Show two explicit choices for sheriff candidacy (上警 / 不上警). Offer withdrawal and voting only to eligible seats in the relevant window. Allow players to open and dismiss their own role and action details. Show 自爆 only to a wolf with a legal self-destruct action, and confirm it on that player's phone.
+Use both sets of 米多狼人面杀助手 screenshots as the reference for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
+
+- **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens a board preview with the player count and role lineup before confirmation. Joining opens room-code entry, and an invite link goes directly to the join flow.
+- **Room and seat grid.** Put room code, room status, seat number, and 查看我的身份 above the current phase and action panel. Follow that panel with the numbered seats in a three-column grid. Show the host, sheriff badge, current speaker, and eliminated seats with clear labels. Put inviting friends and starting the game in the lobby. Keep 本局配置 and 用法简介 accessible to the room, with 房主操作 for the host.
+- **Role and confirmation panels.** Open the private role card on demand with the role name, ability, and an explicit acknowledgement. Use dismissible dialogs for starting the game and confirming consequential player or host actions. Return players to the room after each dialog.
+- **Player actions.** Show two explicit choices for sheriff candidacy (上警 / 不上警). Offer withdrawal and voting only to eligible seats in the relevant window. Allow players to open and dismiss their own action details. Show 自爆 only to a wolf with a legal self-destruct action, and confirm it on that player's phone.
 - **Public match history (对局详情).** Group published events by night and day. Show no-elimination nights, announced exits, public reasons such as exile or self-destruct, and sheriff and voting outcomes at their publication points. Keep private causes, targets, inspections, and unreleased votes out of the public history. Closing it returns to the current phase.
 - **Help and role reference (用法简介).** Explain the room flow, the current board's phase order, its roles, and common reconnect questions. Make the board's roles browsable by category and searchable by Chinese name. Show public ability descriptions independently of a player's assigned role.
+
+Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional for the first playtest. The home, setup, room, role, host controls, help, and match history flows are required. Custom configuration and bot rehearsal are covered by the later playtest scope below.
 
 ## Host controls
 
@@ -70,6 +76,7 @@ The host can open the sheriff election, advance speaking and last words, publish
 ## Playtest acceptance
 
 - On iPhone Safari and Android Chrome, friends can join through a link or code, claim seats, and complete a round from deal through rematch.
+- Walk through the home, setup, role reveal, room, voting, and history screens in portrait. Verify that the primary actions follow the reference flow and that the room status, current action, and three-column seat grid remain readable on a narrow phone.
 - Independent sessions verify role cards, wolf teammates, inspection results, and pending actions are visible only to the appropriate seats. Refreshing during a private action restores that seat and its legal choices.
 - Verify that the host's game controls follow the phase and that an elected sheriff gains only the badge's game powers. Opening help or history and returning keeps the player in the current phase. Verify the public history shows night and day outcomes at the right time and omits private information.
 - Verify sheriff candidacy, vote progress, and the waiting path when ballots are outstanding. Exercise confirmed early close wherever the agreed ballot policy permits it.
