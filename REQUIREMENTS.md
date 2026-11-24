@@ -26,14 +26,15 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 
 ### Room flow
 
-1. **Create or join.** The host previews the board and creates a room. Friends join by invite link or short room code with a room-specific nickname. Everyone sees the public role counts.
-2. **Take a seat.** Players, including the host, claim vacant numbered seats and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats.
-3. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
-4. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
+1. **Create and share.** The host previews the board and creates a room. The lobby provides an 邀请好友 action that opens the phone's share sheet when available and offers a copy-link option. The link identifies the room and can be pasted into a group chat.
+2. **Enter the room.** Tapping an invite opens that room directly. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. A returning player with a valid room credential resumes their session automatically. The home screen's 加入房间 action also supports entry with a short room code.
+3. **Take a seat.** Players, including the host, claim vacant numbered seats and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats.
+4. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
+5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
 
 ### Mobile setup screens
 
-- **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens the quick preset selector with the three boards, then previews the selected board's player count and role lineup before confirmation. For 盗宝大师, show four ordinary 神 seats and label the four possible cards for the Thief's random draw. Keep the actual draw out of the public preview and lobby. Joining opens room-code entry, and an invite link goes directly to the join flow.
+- **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens the quick preset selector with the three boards, then previews the selected board's player count and role lineup before confirmation. For 盗宝大师, show four ordinary 神 seats and label the four possible cards for the Thief's random draw. Keep the actual draw out of the public preview and lobby.
 - **Room and seat grid.** Place the room code, setup status, own seat number, and 查看我的身份 above the room actions and three-column seat grid. Show the host, connection status, and acknowledgement status with clear labels. Keep the invite and 本局配置 accessible, with the deal control available to the host.
 - **Role and confirmation panels.** Open a dismissible, private role card on demand after the deal. Reuse the same role widget for 机械狼 and 盗宝大师 with each role's own name and description. Only the 盗宝大师 seat sees its two extra cards in that widget. Each seat acknowledges receipt once. Return the player to the lobby when the card is dismissed. Ask the host to confirm the deal before locking the roster.
 
@@ -47,6 +48,7 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 ### M1 acceptance
 
 - On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
+- Share the room link in chat and tap it on a second phone. Verify that a new guest lands on the correct room screen and can join with only a nickname. Verify that a returning guest opens the same link and resumes their seat, including after the deal.
 - Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
 - With independent sessions, verify that every player, including the host, receives only their own role. A fresh browser with the invite or a nickname cannot recover a dealt seat.
 - For 盗宝大师, test all four possible 神 draws. Verify that each deal has 14 cards across 12 seats and that 蒙面人 and the three undrawn 神 cards go to the four ordinary 神 seats. Verify that only the 盗宝大师 seat receives its extra cards and that the same draw and cards return after reconnect and deal retry.
