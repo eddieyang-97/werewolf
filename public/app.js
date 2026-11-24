@@ -1,4 +1,5 @@
-import { boards, roles, thiefDraw } from './boards.js';
+import { boards, nightSchedules, roles, thiefDraw } from './boards.js';
+import { choiceLabel, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
@@ -34,7 +35,9 @@ let epoch = 0;
 let sequence = 0;
 let retryAction;
 let noticeTimer;
+let matchClock;
 let roomError = '';
+let showingHistory = false;
 
 function read(key) {
   try { return localStorage.getItem(key) ?? memoryStorage.get(key); }
@@ -143,7 +146,7 @@ function joinScreen() {
   </form>`;
 }
 
-const phases = { lobby: '准备中', dealt: '确认身份中', ready: '身份确认完成' };
+const phases = { lobby: '准备中', dealt: '确认身份中', ready: '身份确认完成', playing: '游戏中', finished: '对局结束' };
 
 function seatTile(guest, index) {
   const seat = index + 1;
@@ -151,14 +154,15 @@ function seatTile(guest, index) {
   const playable = lobby.state === 'lobby' && connected && (!guest || mine);
   const name = guest?.name ?? '空座位';
   const label = mine && playable ? '点击起立' : name;
-  const sub = !guest ? '空座位' : !guest.connected ? '离线' : guest.acknowledged ? '已准备' : '已坐下';
+  const out = lobby.match?.departed.includes(seat);
+  const sub = !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : '已坐下';
   const image = guest?.avatar ?? (guest ? null : '/art/empty-seat.png');
   const avatar = image ? `<img class="seat-avatar" src="${escape(image)}" width="36" height="36" alt="">`
     : `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>`;
   return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="seat" data-value="${seat}" aria-label="${seat}号座，${escape(label)}" ${playable ? '' : 'disabled'}>
-    <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}</span>
+    <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}${lobby.match?.sheriff === seat ? '<span class="sheriff-label">警长</span>' : ''}</span>
     <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
-    <span class="seat-state${guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected ? '✓' : 'ⓘ'}</span> ${sub}</span>
+    <span class="seat-state${out ? ' eliminated' : guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected && !out ? '✓' : 'ⓘ'}</span> ${sub}</span>
   </button>`;
 }
 
@@ -182,7 +186,7 @@ function roomScreen() {
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
       ${button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
-      ${self.host && state === 'lobby' ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
+      ${self.host && (state === 'lobby' || lobby.match?.canAbandon) ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
     <section class="room-overview">
@@ -197,24 +201,38 @@ function roomScreen() {
     <div class="stack room-actions">
       ${button('邀请好友', 'invite')}
       ${state === 'lobby' && self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}
+      ${state === 'ready' && Object.hasOwn(lobby, 'canStart') ? button('开始游戏', 'confirm-start', { disabled: !connected || !lobby.canStart }) : ''}
     </div>
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此座位。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
-    <div class="phase-panel"><strong>${phaseInstruction}</strong><span>${phaseSummary}</span></div>
+    ${lobby.match ? matchPanel(lobby.match, button, connected) : `<div class="phase-panel"><strong>${phaseInstruction}</strong><span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="12 个座位">${seats.map(seatTile).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}`;
 }
 
 function render() {
   const contents = { home, create: createScreen, join: joinScreen, room: roomScreen };
-  root.dataset.screen = screen;
+  const historyOpen = screen === 'room' && showingHistory && lobby?.match;
+  root.dataset.screen = historyOpen ? 'match-history' : screen;
   homeLink.hidden = screen === 'home';
-  root.innerHTML = contents[screen]();
+  homeLink.setAttribute('aria-label', historyOpen ? '返回对局' : '返回首页');
+  root.innerHTML = historyOpen ? matchHistory(lobby.match.history, button) : contents[screen]();
+  clearInterval(matchClock);
+  const timer = root.querySelector('[data-match-deadline]');
+  if (timer) {
+    matchClock = setInterval(() => {
+      const remaining = Number(timer.dataset.matchDeadline) - Date.now();
+      const text = timerText(remaining);
+      if (timer.textContent !== text) timer.textContent = text;
+      if (remaining <= 0) clearInterval(matchClock);
+    }, 250);
+  }
 }
 
 function showDialog(title, body, appearance = '') {
   dialog.className = appearance;
-  dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${appearance === 'identity-dialog' ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
+  const hasFooter = ['identity-dialog', 'ballot-dialog'].includes(appearance);
+  dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${hasFooter ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
   if (!dialog.open) dialog.showModal();
 }
 
@@ -336,6 +354,7 @@ async function go(path, replace = false) {
   connected = false;
   resumable = false;
   takenOver = false;
+  showingHistory = false;
   waiting = false;
   const match = /^\/room\/([A-Z0-9]{6})\/?$/.exec(path);
   if (match && codePattern.test(match[1])) {
@@ -434,6 +453,11 @@ async function submit(event) {
   event.preventDefault();
   if (waiting) return;
   const data = new FormData(form);
+  if (form.dataset.form === 'match-choice') {
+    const command = JSON.parse(data.get('command'));
+    const choices = data.getAll('choice').map(value => JSON.parse(value));
+    return action('match-choice', { ...command, choice: form.dataset.multiple === 'true' ? choices : choices[0] });
+  }
   if (form.dataset.form === 'join-code') {
     const value = data.get('code').trim().toUpperCase();
     if (!codePattern.test(value)) return message('请输入有效的房间号。');
@@ -508,6 +532,7 @@ async function action(type, details = {}) {
     if (error.code) {
       retryAction = undefined;
       if (['TAKEN_OVER', 'SESSION_ENDED', 'ROOM_GONE'].includes(error.code)) handleRoomError(error);
+      if (error.code === 'MATCH_ACTION') dialog.close();
     } else handleRoomError(error);
     message(error.code ? error.message : '连接中断，请重试。');
   } finally {
@@ -520,6 +545,58 @@ async function action(type, details = {}) {
 
 function inviteUrl() {
   return new URL(`/room/${code}`, location.origin).href;
+}
+
+function openMatchControl(command) {
+  const { actions, window, matchId, self } = lobby.match;
+  const requested = JSON.parse(command);
+  if (window !== requested.window || matchId !== requested.matchId) return;
+  const control = actions.find(entry => entry.kind === requested.kind);
+  if (!control) return;
+  const label = matchLabel(control);
+  if (control.options) {
+    const type = control.multiple ? 'checkbox' : 'radio';
+    const options = control.options.map(value => `<label class="match-option"><input type="${type}" name="choice" value="${escape(JSON.stringify(value))}" ${control.multiple ? '' : 'required'}> ${escape(choiceLabel(value, control, lobby.seats))}</label>`).join('');
+    const gun = self.nightAction?.kind === 'gun-check' ? `<p>${self.nightAction.canShoot ? '可以开枪' : '不能开枪'}</p>` : '';
+    const knife = control.action === 'witch' && Object.hasOwn(self, 'wolfTarget')
+      ? `<p>${self.wolfTarget ? `狼刀目标：${self.wolfTarget}号` : '今晚没有普通狼刀目标。'}</p>` : '';
+    return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}">
+      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}<div class="match-options">${options}</div>
+      <button type="submit" class="button primary">确认</button>
+    </form>`);
+  }
+  const warnings = {
+    'self-destruct': '自爆后你将出局。', 'publish-night': '向所有玩家公布昨夜信息？',
+    'close-vote': '结束当前投票？', rematch: '返回准备阶段，在相同房间重新发牌？',
+  };
+  if (warnings[control.kind]) return confirm(label, warnings[control.kind], 'match-send', '确认', command);
+  return action('match-choice', JSON.parse(command));
+}
+
+const helpTabs = { basic: '基本信息', flow: '操作流程', roles: '角色介绍', faq: '常见问题' };
+
+function showHelp(tabName = 'basic') {
+  const boardId = lobby?.board ?? info?.board ?? board;
+  const selected = boards[boardId];
+  const tabs = `<nav class="help-tabs" aria-label="用法简介">${Object.entries(helpTabs).map(([id, name]) =>
+    `<button type="button" class="preset" aria-pressed="${tabName === id}" data-action="help-tab" data-value="${id}">${name}</button>`).join('')}</nav>`;
+  const nightNames = { knife: '狼刀', 'thief-start': '盗宝大师切换', mechanical: '机械狼技能', hunter: '猎人枪态' };
+  const order = nightSchedules[boardId].map(step => nightNames[step] ?? roles[step].name).join(' → ');
+  const pages = {
+    basic: `<p>${selected.name} · 12 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
+    flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看并确认自己的身份。</li><li>房主开始游戏，仅轮到的玩家收到私密夜间操作。</li><li>进行警长竞选、公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : ''}`,
+    faq: '<p>掉线后重新打开邀请链接或点「回到最近一局」。使用同一个浏览器可恢复座位、身份和操作进度。</p><p>若另一个页面正在使用本座位，可点「在此页继续」。</p>',
+  };
+  if (tabName === 'roles') {
+    const ids = [...new Set([...selected.preview.filter(Boolean), ...(boardId === 'thief' ? thiefDraw : [])])];
+    const wolves = new Set(['wolf', 'mechanical', 'thief']);
+    const categories = [['狼人阵营', id => wolves.has(id)], ['好人阵营', id => !wolves.has(id) && id !== 'mixed'], ['其他角色', id => id === 'mixed']];
+    pages.roles = `<label for="role-query">搜索角色名称</label><input id="role-query" data-role-query placeholder="例如 通灵师">${categories.map(([name, filter]) => {
+      const list = ids.filter(filter);
+      return list.length ? `<section class="help-role-group"><h3>${name}</h3>${list.map(id => `<details data-role-name="${roles[id].name}"><summary>${roleMark(id)}${roles[id].name}</summary><p>${roles[id].description}</p></details>`).join('')}</section>` : '';
+    }).join('')}`;
+  }
+  showDialog('用法简介', tabs + pages[tabName]);
 }
 
 async function copyInvite() {
@@ -538,6 +615,10 @@ async function click(event) {
   const link = event.target.closest('[data-go]');
   if (link) {
     event.preventDefault();
+    if (root.dataset.screen === 'match-history' && link === homeLink) {
+      showingHistory = false;
+      return render();
+    }
     go(link.pathname);
     return;
   }
@@ -575,8 +656,8 @@ async function click(event) {
       form.dataset.avatar = '';
       return;
     }
-    case 'help':
-      return showDialog('用法简介', '<ol class="help-steps"><li>房主选择板子并邀请好友。</li><li>点击空座位入座。</li><li>房主在 12 位玩家入座后发放身份。</li><li>查看自己的身份并点击「我知道了」。</li></ol>');
+    case 'help': return showHelp();
+    case 'help-tab': return showHelp(value);
     case 'invite':
       return showDialog('邀请好友', `<label for="invite-link">房间链接</label><input id="invite-link" value="${escape(inviteUrl())}" readonly>
         <div class="dialog-actions">${button('复制链接', 'copy-invite')}${navigator.share ? button('分享链接', 'share-invite', { variant: 'secondary' }) : ''}</div>`);
@@ -591,13 +672,32 @@ async function click(event) {
     case 'confirm-deal':
       return confirm('发放身份', '发放后座位锁定，每位玩家只可查看自己的身份。', 'deal', '确认发放');
     case 'deal': return action('deal');
+    case 'confirm-start': return confirm('开始游戏', '进入第 1 晚？', 'start-match', '开始游戏');
+    case 'start-match': return action('match-start');
+    case 'match-control': return openMatchControl(value);
+    case 'match-send': return action('match-choice', JSON.parse(value));
+    case 'match-history':
+      showingHistory = true;
+      return render();
+    case 'vote-detail': {
+      const event = lobby.match.history[Number(value)];
+      if (!event?.ballot) return;
+      const type = event.kind === 'sheriff-vote' ? '警长' : '';
+      const runoff = event.runoff ? ' PK ' : '';
+      return showDialog(`第${event.round}天${type}${runoff}投票详情`, voteDetail(event, button), 'ballot-dialog');
+    }
     case 'reveal': return action('reveal');
     case 'acknowledge': return action('acknowledge');
     case 'manage': {
+      if (lobby.match?.canAbandon) {
+        return showDialog('房主操作', button('结束本局', 'confirm-abandon', { variant: 'secondary', value: lobby.match.canAbandon }));
+      }
       const guests = [...lobby.seats.filter(Boolean), ...lobby.waiting].filter(guest => !guest.host);
       const list = guests.map(guest => `<li><span>${escape(guest.name)}${guest.seat ? ` · ${guest.seat}号` : ' · 未入座'}</span>${button('移除', 'confirm-remove', { variant: 'secondary', value: guest.id })}</li>`).join('');
       return showDialog('房主操作', list ? `<ul class="guest-list">${list}</ul>` : '<p>目前没有其他玩家。</p>');
     }
+    case 'confirm-abandon': return confirm('结束本局', '结束此局后，所有玩家可回到准备阶段重新发牌。', 'abandon-match', '确认结束', value);
+    case 'abandon-match': return action('match-abandon', { matchId: value });
     case 'confirm-remove': {
       const guest = [...lobby.seats.filter(Boolean), ...lobby.waiting].find(item => item.id === value);
       return guest ? confirm('移除玩家', `将 ${guest.name} 移出房间？`, 'remove', '确认移除', value) : dialog.close();
@@ -614,6 +714,18 @@ async function click(event) {
 
 document.addEventListener('submit', submit);
 document.addEventListener('change', chooseAvatar);
+dialog.addEventListener('input', event => {
+  if (!event.target.matches('[data-role-query]')) return;
+  const query = event.target.value.trim();
+  for (const group of dialog.querySelectorAll('.help-role-group')) {
+    let found = false;
+    for (const entry of group.querySelectorAll('[data-role-name]')) {
+      entry.hidden = !entry.dataset.roleName.includes(query);
+      found ||= !entry.hidden;
+    }
+    group.hidden = !found;
+  }
+});
 document.addEventListener('click', click);
 dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); });
 window.addEventListener('popstate', () => go(location.pathname, true));
