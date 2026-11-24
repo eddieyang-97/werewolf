@@ -1,53 +1,63 @@
 # Werewolf requirements
 
-Draft for the first friends-only playtest. The [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) governs game rules. Board-specific provisions take precedence. Record any additional rulings before implementing the affected behavior.
+M1 delivers room setup and private role distribution. M2 adds a complete playable match. The [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) governs game rules. Board-specific provisions take precedence. Record any additional rulings before implementing the affected behavior.
 
-## First playtest
+## Product and interface
 
-Build a mobile browser game for friends playing at the same table or talking on a separate call. Each player uses their own phone. The host also plays. The app deals private roles, guides discussion and voting, runs night actions, and resolves deaths and victory. Use Fengsheng’s invite, seating, and reconnect flows as references and give Werewolf its own visual design.
+Build a mobile browser app for friends playing at the same table or talking on a separate call. Each player uses their own phone. The host also plays. Use Fengsheng’s invite, seating, and reconnect flows as references.
 
-- Target portrait iPhone Safari and Android Chrome. An invite opens directly in the browser. Provide touch-friendly actions, a clear phase indicator, and an accessible seat grid that fits narrow screens without horizontal scrolling.
+- Target portrait iPhone Safari and Android Chrome. An invite opens directly in the browser. Provide touch-friendly actions, clear room status, and an accessible seat grid that fits narrow screens without horizontal scrolling.
 - Use Simplified Chinese for player-facing copy as a working assumption.
-- Start with one official 12-player board. **预女猎白混** is the proposed first board. Use account-free guest play with a room-specific nickname, a shareable invite, and a short room code.
+- Follow both sets of 米多狼人面杀助手 screenshots for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
 
-## Player flow
+## M1. Room setup and private role distribution
 
-1. **Create or join.** The host picks a board and shares the invite or code. Each friend joins with a nickname and sees the public role counts.
-2. **Take a seat.** Players choose a vacant numbered seat and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats. The host locks the roster and deals once all seats are occupied and connected.
-3. **Reveal and ready.** Each player taps to privately view their role and ability, then marks ready. They can reopen their card. The host starts Night 1 once everyone is ready and connected. Refreshing or reopening the recent room restores the seat with the existing session.
-4. **Play the round.** Each phone shows the current phase, round, and seat status. The app prompts eligible players privately, shows the current speaker and public announcements, and collects votes in the applicable election, exile, and runoff windows.
-5. **Review and play again.** Everyone can open the public match history during play. At game end it includes the winner and leads to the full role roster. The host can return to the same room and seats for a fresh deal.
+Use one official 12-player board for the initial deal. The proposed board is **预女猎白混** (§6.1), with four wolves, four power roles (预言家、女巫、猎人、白痴／白神), and four civilian seats (three 村民 and one 混血儿).
 
-## Mobile match screens
+1. **Create or join.** The host previews the board and creates a room. Friends join by invite link or short room code with a room-specific nickname. Everyone sees the public role counts.
+2. **Take a seat.** Players, including the host, claim vacant numbered seats and can stand before the deal. Everyone sees occupied, vacant, and disconnected seats.
+3. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
+4. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
 
-Use both sets of 米多狼人面杀助手 screenshots as the reference for screen order, information hierarchy, and how players reach each action. Give the web app its own header, typography, palette, button and card styles, and any artwork.
+### Mobile setup screens
 
 - **Home and setup.** Make 创建房间, 加入房间, and 回到最近一局 the primary home actions. Creating a room opens a board preview with the player count and role lineup before confirmation. Joining opens room-code entry, and an invite link goes directly to the join flow.
-- **Room and seat grid.** Put room code, room status, seat number, and 查看我的身份 above the current phase and action panel. Follow that panel with the numbered seats in a three-column grid. Show the host, sheriff badge, current speaker, and eliminated seats with clear labels. Put inviting friends and starting the game in the lobby. Keep 本局配置 and 用法简介 accessible to the room, with 房主操作 for the host.
-- **Role and confirmation panels.** Open the private role card on demand with the role name, ability, and an explicit acknowledgement. Use dismissible dialogs for starting the game and confirming consequential player or host actions. Return players to the room after each dialog.
+- **Room and seat grid.** Place the room code, setup status, own seat number, and 查看我的身份 above the room actions and three-column seat grid. Show the host, connection status, and acknowledgement status with clear labels. Keep the invite and 本局配置 accessible, with the deal control available to the host.
+- **Role and confirmation panels.** Open a dismissible, private role card on demand after the deal. Return the player to the lobby when the card is dismissed. Ask the host to confirm the deal before locking the roster.
+
+### Account-free reconnect
+
+- **Guest data.** Ask only for a nickname to join. Keep nicknames, room credentials, and room state within the room's lifetime. A room expires after 24 hours with no connected players by default. Delete saved state and invalidate its credentials on expiry.
+- **Resume on the same browser.** Issue an opaque, unguessable credential when the guest enters the room and associate it with their seat once taken. Retain it in the browser across reloads. Reconnect automatically after a signal drop, Wi-Fi change, or phone sleep. Both the invite and 回到最近一局 must resume the existing session. A room code and nickname authorize joining an open room only. Keep credentials out of shared links, public state, and logs.
+- **Restore setup state.** Recover the player's room, seat, role assignment, and acknowledgement after reconnect, including after a server restart. Save each accepted change and its outcome before acknowledging it. A retry after a lost acknowledgement must recover the original outcome without repeating the change.
+- **Connection status and control.** Show reconnect progress and disable actions until restored state arrives. Allow one connection to control each session. When a new connection takes over, tell the older tab and let it request control explicitly. Restore host controls to the host's active session only. Explain expired rooms and missing credentials. Recovery covers the original browser profile with its credential intact.
+
+### M1 acceptance
+
+- On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the setup, role card, and seat grid on a narrow phone.
+- Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
+- With independent sessions, verify that every player, including the host, receives only their own role. A fresh browser with the invite or a nickname cannot recover a dealt seat.
+- Verify recovery after refresh, phone backgrounding, network change, and server restart before and after the deal. Check that the same role, acknowledgement, and host status return. Verify duplicate-tab control and expiry.
+
+## M2. Full match play
+
+The host can start Night 1 once all players have acknowledged their roles and are connected. Run the match through night actions, discussion, voting, resolution, victory, and rematch in the same room.
+
+### Mobile match screens
+
+- **Phase and seat status.** Keep the current phase, speaker, public announcements, and available action above the numbered seats. Add the sheriff badge and public elimination state. Confirm consequential player and host actions.
 - **Player actions.** Show two explicit choices for sheriff candidacy (上警 / 不上警). Offer withdrawal and voting only to eligible seats in the relevant window. Allow players to open and dismiss their own action details. Show 自爆 only to a wolf with a legal self-destruct action, and confirm it on that player's phone.
 - **Public match history (对局详情).** Group published events by night and day. Show no-elimination nights, announced exits, public reasons such as exile or self-destruct, and sheriff and voting outcomes at their publication points. Keep private causes, targets, inspections, and unreleased votes out of the public history. Closing it returns to the current phase.
+- **Results and rematch.** At game end, show the winner and the full role roster. Let the host return the group to the same room and seats for a fresh deal.
 - **Help and role reference (用法简介).** Explain the room flow, the current board's phase order, its roles, and common reconnect questions. Make the board's roles browsable by category and searchable by Chinese name. Show public ability descriptions independently of a player's assigned role.
 
-Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional for the first playtest. The home, setup, room, role, host controls, help, and match history flows are required. Custom configuration and bot rehearsal are covered by the later playtest scope below.
-
-## Host controls
+### Host controls
 
 The host can open the sheriff election, advance speaking and last words, publish resolved night information, open voting, and start the next night when the server permits each transition. Night publication follows the sheriff election and interruption rules. The server checks victory as soon as a death is formal, including before a host announcement.
 
 - **Discussion timer.** Provide a shared countdown the host can start. Treat expiry as a cue to finish speaking. The phase changes through the legal game control.
 - **Voting progress.** Show the host received and expected ballot counts. Show pending seat numbers only for voting windows where that information is allowed. If early close is permitted, offer to keep waiting or confirm closing the ballot and show how missing ballots will be counted. Keep this control gated on the ruling for missing ballots.
 - **Ownership and recovery.** Keep administrative actions in a host menu and keep room ownership separate from the sheriff badge. Badge transfer or destruction follows the board's rules. A fresh deal after a completed game follows the rematch flow.
-
-## Board coverage
-
-| Board | First playtest scope | Governing section |
-| --- | --- | --- |
-| 预女猎白混 | Proposed first board. Four wolves, four power roles (预言家、女巫、猎人、白痴／白神), and four civilian seats (three 村民 and one 混血儿). | §6.1 |
-| 假面舞会 | Later. Hidden wolf, dance pool, and mask interactions. | §6.2 |
-| 盗宝大师 | Later. Fourteen cards across twelve seats, identity switching, and delayed death. | §6.3 |
-| 机械狼通灵师 | Later. Mechanical Wolf learning, copied abilities, and Spiritualist inspection. | §6.4 |
-| 预女骑守 | Later. Knight duel and Guard interactions. | §6.5 |
 
 ### Rules required for 预女猎白混
 
@@ -61,33 +71,32 @@ The host can open the sheriff election, advance speaking and last words, publish
 | Exile and wolf self-destruct | A tied first exile vote sends all tied targets to a runoff with reverse speaking order and a second vote. A second tie leaves everyone in. A legal wolf self-destruct interrupts discussion or runoff speeches and advances play according to the pending death announcements and resolution rules. Enforce the closing window at the start of the sheriff’s final nomination, or formal voting when there is no nomination. §4 |
 | Last words and Hunter | Follow the order formal death → victory check → eligible last words → legal shots and death chains → badge handling. Give eligible N1 deaths last words, handle multiple deaths in the specified speaking order, and apply daytime last-words eligibility. Allow Hunter shots after normal exile or a normal wolf kill where play continues. Poison blocks the shot. §§1–2 |
 
-## Session and information rules
+### Session and information during play
 
-- The server owns the deal, phase transitions, eligibility, and outcomes. Each phone receives public state and only the private details its seat may know. The host’s management controls use the same visibility rules as any other seat. Keep night waiting screens generic and reveal the full role roster at game end.
-- Validate the player, action window, and target on every submission. Concurrent seat claims, repeated taps, and stale commands must leave all phones in agreement.
+- The server owns phase transitions, eligibility, and outcomes. Validate the player, action window, and target on each submission. Persist accepted actions and their outcomes before acknowledgement so retries resolve once. Send each phone public state and only its authorized private information. Host controls grant the same visibility as any other seat. Keep night waiting screens generic.
+- Extend M1 reconnect to the current phase, private results, and pending legal actions, including after a server restart. Preserve required choices while waiting for reconnect. Pause applicable action timers and resume with the remaining time after the pause clears. Keep private action eligibility out of public disconnect and waiting messages.
 
-## Account-free reconnect
+### Decisions before implementing gameplay
 
-- **Guest data.** Ask only for a nickname to join. Keep nicknames, seat credentials, and gameplay state within the room's lifetime. A room expires after 24 hours with no connected players by default. Delete its saved state and invalidate its credentials on expiry.
-- **Resume on the same browser.** Issue an opaque, unguessable credential when the guest enters the room and associate it with their seat once taken. Retain it in the browser across reloads. Use it to reconnect automatically after a signal drop, Wi-Fi change, or phone sleep. Both the invite and 回到最近一局 must resume the existing session. A room code and nickname authorize joining an open room only. Keep credentials out of shared links, public state, and logs.
-- **Restore the current game.** On reconnect, load the server's latest state, including the player's seat, role, current phase, permitted private information, and any pending legal action. Support the same recovery after a server restart, using short-lived room storage. Save each accepted action and its outcome together before acknowledging it. A retry after a lost acknowledgement must recover the original outcome without repeating the action.
-- **Connection status and control.** Show reconnect progress and disable actions until the restored state arrives. Only one connection can act for a seat. When a new connection resumes the seat, tell the older tab that control moved and let it request control explicitly. A returning host regains host controls only if they still hold that role.
-- **Unfinished actions.** Preserve required choices while waiting for reconnect. Pause a running action timer when a disconnect requires a pause. Resume automatically with the remaining time once the pause conditions clear. Keep private action eligibility out of public disconnect and waiting messages. Show clear guidance for expired rooms and missing credentials. MVP recovery covers the original browser profile with its credential intact.
-
-## Decisions before implementing game rules
-
-- Confirm **预女猎白混** as the first board and settle details §6.1 leaves implicit, including 混血儿 target eligibility and what 白痴／白神 can do after exile.
+- Settle details §6.1 leaves implicit, including 混血儿 target eligibility and what 白痴／白神 can do after exile.
 - Specify the first board’s exact night prompt order, how wolves submit a shared choice, the Witch’s potion and self-save limits, and the Seer’s result for 混血儿. The night order in §5.4 is for 机械狼通灵师.
 - Set vote visibility and abstention behavior where the handbook is silent. Decide which ballot windows the host can close early and how to count missing ballots. Decide recovery for a disconnected player with a required choice, including how the group resumes or abandons the round.
 
-## Playtest acceptance
+### M2 acceptance
 
-- On iPhone Safari and Android Chrome, friends can join through a link or code, claim seats, and complete a round from deal through rematch.
-- Walk through the home, setup, role reveal, room, voting, and history screens in portrait. Verify that the primary actions follow the reference flow and that the room status, current action, and three-column seat grid remain readable on a narrow phone.
-- Independent sessions verify role cards, wolf teammates, inspection results, and pending actions are visible only to the appropriate seats.
-- Verify same-seat recovery from refresh, backgrounding, a network switch, and server restart. Exercise a pending private action, a lost acknowledgement after an accepted action, a duplicate tab, and a returning host. Verify expired credentials and invite links copied to a fresh browser cannot resume another seat.
+- On portrait iPhone Safari and Android Chrome, play from Night 1 through rematch. Verify that the current phase, action, and seat grid remain readable during play.
+- Use independent sessions to verify wolf teammate, inspection result, and pending action visibility. Recover a pending private action after a disconnect and a server restart. Retry an accepted action after a lost acknowledgement and verify it resolves once.
 - Verify that the host's game controls follow the phase and that an elected sheriff gains only the badge's game powers. Opening help or history and returning keeps the player in the current phase. Verify the public history shows night and day outcomes at the right time and omits private information.
 - Verify sheriff candidacy, vote progress, and the waiting path when ballots are outstanding. Exercise confirmed early close wherever the agreed ballot policy permits it.
 - Test a first-vote tie and runoff, sheriff election interruption, badge transfer, N1 last words, and Hunter timing. Exercise immediate night victory and simultaneous victory conditions. Verify 混血儿 affiliation and the 白痴／白神 exile each count correctly.
 
-Custom lineups, the remaining boards, bot rehearsal, personal notes, narration, spectators, and in-app chat or voice are candidates for later playtests. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
+## Later candidates
+
+| Board | Gameplay additions | Governing section |
+| --- | --- | --- |
+| 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
+| 盗宝大师 | Fourteen cards across twelve seats, identity switching, and delayed death. | §6.3 |
+| 机械狼通灵师 | Mechanical Wolf learning, copied abilities, and Spiritualist inspection. | §6.4 |
+| 预女骑守 | Knight duel and Guard interactions. | §6.5 |
+
+Custom lineups, bot rehearsal, personal notes, narration, spectators, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, manual elimination, and forced match end are candidates for recovery tools. Define their permitted phases and effects before adding them.
