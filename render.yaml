@@ -3,6 +3,7 @@ services:
     runtime: node
     name: werewolf
     branch: main
+    autoDeployTrigger: checksPass
     region: frankfurt
     plan: free
     buildCommand: npm ci --no-audit --no-fund

@@ -5,13 +5,70 @@ import { abandonMatch, controllerView, executeMatchChoice, startMatch } from '..
 import { matchRules } from '../server/match-rules.js';
 import { isWolf, playerAt } from '../server/match-state.js';
 
-function createRoom(board, draw) {
+function createRoom(board, draw, lineup) {
   return {
     board, hostId: '1', dealt: true,
-    guests: buildDeck(board, () => draw).map((assignment, index) => ({
+    guests: buildDeck(board, () => draw, lineup).map((assignment, index) => ({
       id: String(index + 1), seat: index + 1, assignment, revealed: true, acknowledged: true,
     })),
   };
+}
+
+for (const lastWolf of [false, true]) {
+  test(`custom Wolf King exile ${lastWolf ? 'ends the match before the shot' : 'grants a private shot after last words'}`, () => {
+    const room = createRoom('custom', undefined, ['wolfKing', 'seer', 'medium', 'villager', 'villager',
+      ...(lastWolf ? [] : ['wolf'])]);
+    const [king, seer, medium, host, victim, wolf] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => {
+      const action = controls(room, guest).actions?.find(entry => entry.kind === kind);
+      assert.ok(action, `${kind} must be available to seat ${guest.seat} in ${room.match.phase}`);
+      choose(room, guest, action, choice);
+    };
+    startMatch(room, matchRules);
+    const { match } = room;
+    const knife = controls(room, king);
+    assert.equal(knife.actions[0].action, 'knife');
+    assert.ok(!knife.actions[0].options.includes(king.seat));
+    assert.equal(controls(room, host).self.teammates, undefined);
+    assert.equal(executeMatchChoice(room, king, { matchId: knife.matchId, window: knife.window,
+      kind: 'night-action', choice: king.seat }, matchRules), false);
+    if (wolf) {
+      assert.deepEqual(controls(room, wolf).self.teammates, [king.seat]);
+      assert.deepEqual(knife.self.teammates, [wolf.seat]);
+      assert.ok(!controls(room, wolf).actions[0].options.includes(king.seat));
+    }
+    play(king, 'night-action', null);
+    play(seer, 'night-action', king.seat);
+    play(medium, 'night-action', king.seat);
+    assert.equal(controls(room, seer).self.inspections[0].team, 'wolves');
+    assert.equal(controls(room, medium).self.inspections[0].claws, 2);
+    assert.deepEqual(controls(room, host).self.inspections, []);
+    assert.equal(controls(room, king).self.canSelfDestruct, true);
+    play(host, 'open-election');
+    for (const guest of room.guests) play(guest, 'candidacy', false);
+    play(host, 'publish-night');
+    while (match.phase === 'discussion') play(host, 'finish-speech');
+    play(host, 'open-exile');
+    for (const guest of room.guests) play(guest, 'vote', guest === king ? null : king.seat);
+    if (lastWolf) {
+      assert.equal(match.winner, 'village');
+      assert.equal(controls(room, king).actions, undefined);
+    } else {
+      assert.equal(match.phase, 'last-words');
+      play(host, 'finish-speech');
+      assert.equal(controls(room, host).phase, 'death-resolution');
+      assert.equal(controls(room, host).actions, undefined);
+      assert.equal(controls(room, king).actions[0].role, 'wolfKing');
+      play(king, 'shoot', victim.seat);
+      assert.equal(match.phase, 'last-words');
+      assert.equal(controls(room, host).speaker, victim.seat);
+      assert.equal(match.history.at(-1).kind, 'shot');
+      play(host, 'finish-speech');
+      play(host, 'next-night');
+      assert.deepEqual(match.night.wolves, [wolf.seat]);
+    }
+  });
 }
 
 function controls(room, guest) {
@@ -22,6 +79,79 @@ function choose(room, guest, action, choice, now) {
   const { matchId, window } = controls(room, guest);
   assert.equal(executeMatchChoice(room, guest, { matchId, window, kind: action.kind, choice }, matchRules, now), true);
 }
+
+function playAction(room, guest, kind, choice) {
+  const action = controls(room, guest).actions?.find(entry => entry.kind === kind);
+  assert.ok(action, `${kind} must be available to seat ${guest.seat} in ${room.match.phase}`);
+  choose(room, guest, action, choice);
+}
+
+for (const sheriffMode of ['double', 'single']) {
+  test(`${sheriffMode} badge mode applies its self-destruct limit across D1 and D2`, () => {
+    const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'wolf', 'seer', 'villager', 'villager', 'villager']);
+    room.sheriffMode = sheriffMode;
+    const [king, secondWolf, , seer, host, victim, candidate] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(king, 'night-action', victim.seat);
+    play(seer, 'night-action', king.seat);
+    play(host, 'open-election');
+    for (const guest of room.guests) play(guest, 'candidacy', [king, host, candidate].includes(guest));
+    const order = match.election.order.filter(seat => seat !== king.seat);
+    play(king, 'self-destruct');
+    assert.equal(match.phase, 'last-words');
+    assert.equal(controls(room, host).speaker, victim.seat);
+    assert.deepEqual(match.history.find(event => event.kind === 'night-result').seats, [victim.seat]);
+    assert.equal(match.election.status, sheriffMode === 'single' ? 'completed' : 'postponed');
+    play(host, 'finish-speech');
+    play(host, 'next-night');
+    play(secondWolf, 'night-action', null);
+    play(seer, 'night-action', secondWolf.seat);
+
+    if (sheriffMode === 'double') {
+      play(host, 'open-election');
+      assert.deepEqual(match.election.speakers, order);
+      play(secondWolf, 'self-destruct');
+      assert.equal(match.phase, 'next-night');
+    } else {
+      assert.deepEqual(controls(room, host).actions.map(action => action.kind), ['publish-night']);
+      play(host, 'publish-night');
+      assert.equal(match.phase, 'discussion');
+    }
+    assert.equal(match.sheriff, null);
+    assert.equal(match.election.status, 'completed');
+    assert.equal(match.history.filter(event => event.kind === 'sheriff').length, 1);
+    assert.equal(match.history.filter(event => event.kind === 'night-result').length, 2);
+  });
+}
+
+test('no badge skips the election and runs ordinary exile with one vote per player', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'wolf', 'seer', 'villager', 'villager']);
+  room.sheriffMode = 'none';
+  const [wolf, secondWolf, seer, host, other] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  play(wolf, 'night-action', null);
+  play(seer, 'night-action', wolf.seat);
+  const dawn = controls(room, host);
+  assert.deepEqual(dawn.actions.map(action => action.kind), ['publish-night']);
+  assert.equal(executeMatchChoice(room, host, { matchId: dawn.matchId, window: dawn.window, kind: 'open-election' }, matchRules), false);
+  play(host, 'publish-night');
+  assert.equal(room.match.phase, 'discussion');
+  assert.equal(controls(room, secondWolf).self.canSelfDestruct, true);
+  while (room.match.phase === 'discussion') play(host, 'finish-speech');
+  assert.deepEqual(controls(room, host).actions.map(action => action.kind), ['open-exile']);
+  play(host, 'open-exile');
+  assert.equal(controls(room, secondWolf).self.canSelfDestruct, false);
+  for (const guest of room.guests) play(guest, 'vote', guest === host || guest === other ? wolf.seat : null);
+  const ballot = room.match.history.find(event => event.kind === 'exile-vote').ballot;
+  assert.deepEqual(ballot.groups, [{ seat: wolf.seat, count: 2, voters: [host.seat, other.seat] }]);
+  assert.equal(room.match.sheriff, null);
+  assert.equal(room.match.election, undefined);
+});
 
 function choiceFor(room, action) {
   const { match } = room;

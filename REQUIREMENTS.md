@@ -1,6 +1,6 @@
 # Werewolf requirements
 
-M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating for full rooms.
+M1 delivers room setup and private role distribution. M2 adds a complete playable match. M3 adds spectating and seat replacement for disconnected players.
 
 This document defines the app’s required behavior and acceptance criteria. Use the [狼人杀规则手册 v18.1, 2026-10-21](docs/rules/werewolf_rules_v18.1_2026-10-21.pdf) as a reference for board rules and unresolved cases. Within the handbook, board-specific provisions take precedence over general provisions.
 
@@ -28,13 +28,22 @@ For **盗宝大师**, draw its 神 card once per deal from 毒师、摄梦人、
 
 蒙面人 always goes to an ordinary 神 seat. The three eligible cards that 盗宝大师 did not draw fill the other ordinary 神 seats. Shuffle those four cards among the ordinary 神 seats.
 
+### Custom lineups
+
+- 自定义配置 opens from 快速配置. Use the reference layout with role search, faction tabs, role pills, and a live player count and card preview. In 房间配置, the host opens 警徽设置 in a bottom sheet and confirms one of the three modes before creating the room.
+- The host selects 3–12 seats, with at least one 狼, one 神, and one 民 for 屠边. 狼人 and 村民 can repeat. All other enabled roles are unique. 混血儿 counts toward 民. The built-in roles that depend on their preset, 机械狼 and 盗宝大师, stay in those presets. 守卫 and 摄梦人 share the opening protection slot and cannot be selected together (§5.4).
+- The sole new role is 狼王 (the handbook's 狼枪). It joins the ordinary wolves' private night discussion and knife action from N1 and can self-destruct in the ordinary windows. The ordinary knife cannot target 狼王. 预言家 sees 狼人 and 通灵师 sees 双爪. 狼王 can shoot after being exiled if play continues, after last words and before the badge. Self-destruct, poison, dream effects, and being shot give no shot. Apply immediate victory before offering a shot (§§1–2). The handbook also grants a shot after a successful Knight duel, which is unavailable in these lineups.
+- For custom rooms, run selected roles in this order: 混血儿 on N1 → 守卫 or 摄梦人 → 狼刀 → 女巫 → 毒师 → 预言家 → 通灵师 → 猎人枪态. Use the shared match rules and ordinary versions of each ability, including the 混血儿, 白痴 and good-side 蒙面人 rules.
+- The server validates the lineup before room creation and saves it with the room. Use its size for seating, spectating, deal and match-start gates. The public lineup shows card counts without seat assignments. Keep it through reconnect, restart, and rematch.
+- Save the sheriff mode with the room and show it in 本局配置. 双爆吞警徽 is the default for presets and older rooms. 单爆吞警徽 closes the unfinished election permanently after the first legal wolf self-destruct, even in a two-candidate runoff. Process deaths as usual and enter the next night if play continues. After a sheriff is elected, use ordinary self-destruct and badge transfer rules. 无警徽 skips the election, badge actions, and sheriff voting privileges. Ordinary self-destruct windows still apply, and there is no pre-badge window for 自爆吞毒.
+
 ### Room flow
 
 1. **Create and share.** The host previews the board and creates a room. The lobby provides an 邀请好友 action that opens the phone's share sheet when available and offers a copy-link option. The link identifies the room and can be pasted into a group chat.
-2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, show new guests that the room is full until M3 adds spectating. The home screen's 加入房间 action also supports entry with a short room code.
+2. **Enter the room.** Tapping an invite opens that room directly. A returning player with a valid room credential resumes their session automatically. A new guest enters their nickname on the room screen, then sees the lobby and public role counts. When all seats are taken, offer new guests 观战. The home screen's 加入房间 action also supports entry with a short room code.
 3. **Take a seat.** The host starts in seat 1 when the room is created. Before the deal, players can claim vacant numbered seats or stand up. Everyone sees occupied, vacant, and disconnected seats. Before the deal the host can remove a guest, including one who is disconnected or unseated. Removal revokes the guest's room session, frees any seat they held, and updates the lobby for everyone.
-4. **Deal once.** Once all 12 seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
-5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all 12 have acknowledged. M1 ends at that state.
+4. **Deal once.** Once all seats are occupied and connected, the host confirms the deal. The server shuffles and assigns one role to each seat and locks the roster in the same operation. Concurrent seat claims and repeated deal commands resolve once. The host sees only their own role assignment.
+5. **Reveal and acknowledge.** Players open their own role card, read the role and ability, and acknowledge receipt. They can reopen the card. The lobby shows acknowledgement status by seat and a clear completion state when all seats have acknowledged. M1 ends at that state.
 
 ### Mobile setup screens
 
@@ -56,6 +65,8 @@ Deploy M1 from the private GitHub repository to a Render web service. Serve the 
 ### M1 acceptance
 
 - On portrait iPhone Safari and Android Chrome, create a room, join from a link and a code, and complete a 12-seat deal and acknowledgement flow. Check the three presets, role card, and seat grid on a narrow phone. Verify all three presets deal their expected seat and card counts.
+- Create a custom lineup and check role search, tabs, quantities, validation, and preview on a narrow phone. Deal a smaller room and verify the lineup, private assignments, and match start survive reconnect and restart. Verify 狼王's private action, knife restrictions, inspections, and exile resolution through play.
+- Set each sheriff mode from the bottom sheet. Check that cancelling preserves the selection and that the confirmed mode survives room restart and rematch. Verify D1 and D2 after self-destructs in both badge modes and verify discussion and exile voting in a room with 无警徽.
 - Share the room link in chat and tap it on a second phone. Verify that a new guest lands on the correct room screen and can join with only a nickname. Verify that a returning guest opens the same link and resumes their seat, including after the deal.
 - Verify that the host starts in seat 1 and can move before the deal. Select a photo, check the preview, and verify that another player sees the thumbnail in the lobby. Check that it survives reconnect and disappears on removal.
 - Verify that only the host can deal and that seating and connection requirements are enforced. Test a concurrent seat claim and repeated deal requests, including a lost acknowledgement. Verify that the final deck matches the selected board and seats remain fixed after the deal.
@@ -87,7 +98,7 @@ The host can open the sheriff election, advance speaking and last words, publish
 
 ### Rules required for match play
 
-The following requirements cover the three supported presets. Preserve their player-visible choices, information and outcomes; the server need not reproduce physical-table procedures as distinct internal phases. Section numbers refer to the handbook linked above. Unresolved decisions are listed separately below.
+The shared requirements also apply to custom lineups. The server may simplify physical-table procedures while preserving the player-visible choices, information and outcomes. Section numbers refer to the handbook linked above. Unresolved decisions are listed separately below.
 
 #### Shared death, victory and night resolution (§§1–2, 4.2–4.3, 5.1)
 
@@ -101,9 +112,9 @@ The following requirements cover the three supported presets. Preserve their pla
 
 #### Sheriff election, discussion and voting (§§3–4)
 
-- On D1, run the sheriff election before publishing N1 deaths, unless the match has already ended. If every player stands for election, the badge is lost; if withdrawals leave one candidate, that candidate wins automatically. Withdrawals are irreversible during that election, including any postponement. A withdrawn candidate normally cannot vote in the first sheriff ballot.
+- On D1 in a room with a badge, run the sheriff election before publishing N1 deaths, unless the match has already ended. If every player stands for election, the badge is lost; if withdrawals leave one candidate, that candidate wins automatically. Withdrawals are irreversible during that election, including any postponement. A withdrawn candidate normally cannot vote in the first sheriff ballot.
 - Send all candidates tied at the top of the first sheriff vote to a runoff, with speeches in reverse order of their original election speeches. Former candidates who are not current runoff candidates may vote in the second ballot unless they withdraw during that runoff. A runoff withdrawal leaving one candidate elects that candidate automatically; a second tie loses the badge.
-- A legal self-destruct during an unfinished D1 election interrupts it, triggers publication and processing of N1 deaths, then N2. Resume the unfinished election on D2 with the existing speaking order. If another self-destruct interrupts the postponed election, permanently lose the badge, process N2 information and enter N3. When exactly two runoff candidates remain and one self-destructs, elect the other automatically; with three or more, postpone the remaining candidates subject to the one-postponement limit (unless only one remains).
+- In 双爆吞警徽, a legal self-destruct during an unfinished D1 election interrupts it, triggers publication and processing of N1 deaths, then N2. Resume the unfinished election on D2 with the existing speaking order. If another self-destruct interrupts the postponed election, permanently lose the badge, process N2 information and enter N3. When exactly two runoff candidates remain and one self-destructs, elect the other automatically; with three or more, postpone the remaining candidates subject to the one-postponement limit (unless only one remains).
 - Without a badge, randomly select a seat and use the odd/even clockwise/counterclockwise convention for speeches. With a sheriff, allow the sheriff to choose the direction relative to the sole night victim (死左/死右), or relative to the sheriff when there are multiple night victims (警左/警右). The sheriff may make a final nomination after ordinary speeches even if their ordinary speech was not last.
 - A normal sheriff exile vote has weight 1.5 if it agrees with the sheriff's nomination; otherwise it has weight 1. A sheriff may nominate multiple players into a runoff (weight 1). Exile runoffs use reverse original speaking order, a second ballot with sheriff weight 1 and no second nomination; another tie produces no exile.
 - A valid wolf self-destruct ends the normal exile or runoff speech process without automatically exiling any remaining candidate. Close the self-destruct window when the sheriff starts the final nomination, or at formal voting if there is no nomination. When night deaths have not yet been published, publish and process them, last words, death skills and badge handling as applicable before entering the next night, respecting immediate victory.
@@ -136,7 +147,7 @@ The following requirements cover the three supported presets. Preserve their pla
 - The Poisoner has one poison, no antidote and no knife-target information. For a Thief with the Poisoner card, an unused poison is available on a Poisoner night and is not replenished by switching.
 - Dreamer cannot dream self. A dream target is protected against ordinary knives and poison that night. A Dreamer dying at night drags that night's dream target into death; daytime exile does not drag the target. Two consecutive actual uses of the dream ability on the same target cause dream death, including when a Thief's intervening 民 night separates the uses. Consecutive dream death and death by dragging block Hunter shots.
 - A good 蒙面人 exiled by day leaves immediately. If hit by a night lethal effect (ordinary knife, poison, consecutive dream death or death by dragging), formal departure normally occurs after that player's next ordinary daytime speech, not on application of the effect. Check victory at formal departure. When self-destruct removes that speech opportunity and play continues, resolve the delayed departure at night-result publication if it is still pending, or at the interruption if the night result is already public. If the last wolf's self-destruct establishes a good-side win while 蒙面人 is still in play, stop the pending departure immediately. The announcement need not explicitly identify the player as 蒙面人, although the resolution may reveal that identity. N1 蒙面人 does not receive a duplicate N1 last-words speech after their ordinary daytime speech.
-- Medium inspection uses the target's identity state at the inspection point. For the Thief, show the current disguise (after switching), not the true wolf faction. Ordinary wolves return 单爪; the handbook mentions 双爪 for a wolf gun, which is not currently specified in the supported roster.
+- Medium inspection uses the target's identity state at the inspection point. For the Thief, show the current disguise (after switching), not the true wolf faction. Ordinary wolves return 单爪. 狼王 returns 双爪 in custom lineups.
 - The handbook's special last-wolf Thief-as-蒙面 rule is outside the current app preset because the Thief cannot draw 蒙面人. Do not implement it as a reachable state unless the draw restriction changes.
 
 ### Session and information during play
@@ -152,7 +163,7 @@ The following requirements cover the three supported presets. Preserve their pla
 
 ### Remaining gameplay rulings
 
-- Confirm the remaining copied-ability and inspection-result mappings, including copied Hunter gun-status timing and eligibility where not specified. Confirm whether any supported roster includes a wolf gun; if so, define its allocation and apply the handbook's gun restrictions.
+- Confirm the remaining copied-ability and inspection-result mappings, including copied Hunter gun-status timing and eligibility where not specified. Define allocation and copy interactions before adding a wolf gun to a preset.
 - Define the pending/formal death boundary around D1 election and 自爆吞毒, including which pending N1 deaths permit an intervening self-destruct. Confirm the no-night-death sheriff direction convention and mixed lethal causes affecting gun eligibility if reachable.
 - Confirm role target and skip restrictions, exact mechanical Guard empty-guard behavior, and other unresolved action details before changing them.
 
@@ -167,11 +178,13 @@ The following requirements cover the three supported presets. Preserve their pla
 - For 机械狼通灵师, test ordinary Guard empty-guard reset, same-guard/same-save death and Hunter eligibility, mechanical learning timing and visibility, reflected poison, night-start knife inheritance and that learning a 小狼 grants one extra knife usable only on a later night with ordinary knife ownership at night start.
 - For 盗宝大师, test both starting identities, mandatory switching and persistent skill resources, disguise inspections, N1 no-knife and subsequent inheritance, dream protection/dragging/consecutive-use death across switching, and good 蒙面 delayed departure. Verify that a good-side win after the last wolf self-destructs before dawn publication cancels the pending departure. Verify that the excluded Thief-as-蒙面 state cannot arise.
 
-## M3. Spectating
+## M3. Spectating and seat replacement
 
 - When all 12 seats are occupied, offer new guests 观战 from the same room invite or code, including during a match. Restore an existing player's session before offering spectator entry.
-- Spectators are account-free and use no seat. Show them only public room and match information at the same publication points as players. A spectator's session has read-only access.
-- Verify that a new guest can spectate a full lobby and a match in progress. Check that spectator entry leaves the roster and deal unchanged, that returning players keep their seats, and that spectators receive no private roles, pending actions, or unreleased votes.
+- Spectators are account-free and use no seat. A room can keep up to 24 spectator sessions. Show them only public room and match information at the same publication points as players. Spectators can request to replace an offline player and cancel their own request.
+- A spectator selects an occupied, disconnected seat during setup or active play. Only the room host can approve the request. The host’s seat is excluded. The server checks that the seat is still held by the same offline player and that the spectator is online. A player reconnecting before approval clears requests for their seat.
+- On approval, move the spectator into that seat and keep the deal, game state, and pending choices attached to it. If the deal has happened and play has yet to begin, the replacement reviews and confirms the role before the match starts. During play the replacement gains the seat’s private view and legal actions immediately. The original session becomes a spectator and, once roles are dealt, cannot request another seat until rematch. The replacement keeps the seat on rematch.
+- Verify that a guest can spectate a full lobby and a match in progress without seeing private roles, pending actions, or unreleased votes. Verify that a returning player keeps their seat if they reconnect first, and that an approved handoff survives retry and restart. Use independent sessions to check that only the replacement can resume the seat’s private action.
 
 ## Later candidates
 
@@ -180,4 +193,4 @@ The following requirements cover the three supported presets. Preserve their pla
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
-Custom lineups, bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, and manual elimination are candidates for recovery tools. Define their permitted phases and effects before adding them.
+Bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Host handoff, redeal during setup, and manual elimination are candidates for recovery tools. Define their permitted phases and effects before adding them.

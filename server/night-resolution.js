@@ -1,8 +1,8 @@
-import { formalDeaths, playerAt } from './match-state.js';
+import { formalDeaths, isPackWolf, playerAt } from './match-state.js';
 
 export function knifeOwners(match, alive) {
   if (match.board === 'thief' && match.round === 1) return [];
-  const wolves = alive.filter(player => player.role === 'wolf');
+  const wolves = alive.filter(isPackWolf);
   if (wolves.length) return wolves.map(player => player.seat);
   return alive.filter(player => ['mechanical', 'thief'].includes(player.role)).map(player => player.seat);
 }
@@ -14,6 +14,7 @@ export function mediumResult(target) {
     return { role: target.copy.role, mechanical: true };
   }
   if (target.role === 'wolf') return { claws: 1 };
+  if (target.role === 'wolfKing') return { claws: 2 };
   if (target.role === 'thief') return { role: target.form === 'power' ? target.extra[0] : 'villager' };
   return { role: target.role };
 }

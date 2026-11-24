@@ -4,7 +4,8 @@ import { thiefDraw } from '../public/boards.js';
 const wolves = ['wolf', 'wolf', 'wolf'];
 const villagers = ['villager', 'villager', 'villager', 'villager'];
 
-export function buildDeck(board, choose = randomInt) {
+export function buildDeck(board, choose = randomInt, lineup) {
+  if (board === 'custom') return lineup.map(role => ({ role }));
   if (board === 'classic') {
     return [...wolves, 'wolf', ...villagers.slice(1), 'mixed', 'seer', 'witch', 'hunter', 'fool']
       .map(role => ({ role }));

@@ -14,7 +14,7 @@ export function electionOpen(match) {
 }
 
 export function electionDue(match) {
-  return match.election?.status === 'postponed' || (match.round === 1 && !match.election);
+  return match.sheriffMode !== 'none' && (match.election?.status === 'postponed' || (match.round === 1 && !match.election));
 }
 
 export function electionEligible(match) {
@@ -128,7 +128,9 @@ export function interruptElection(match, seat) {
   match.election = election;
   election.candidates = election.candidates.filter(candidate => candidate !== seat && !playerAt(match, candidate).announced);
   const runoff = [phases.runoffSpeech, phases.runoffVote].includes(match.phase);
-  if (runoff && election.candidates.length === 1) {
+  if (match.sheriffMode === 'single') {
+    settleElection(match, null);
+  } else if (runoff && election.candidates.length === 1) {
     settleElection(match, election.candidates[0]);
   } else if (election.postponed) {
     settleElection(match, null);

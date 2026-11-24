@@ -1,5 +1,6 @@
 export const roles = {
   wolf: { name: '狼人', description: '与其他狼人合作。入夜后，狼队共同选择行动目标。' },
+  wolfKing: { name: '狼王', art: 'wolf', description: '与小狼一起行动。白天被放逐后，若对局仍在进行，可开枪带走一名玩家。自爆、被毒、被梦或被枪带走时不能开枪。狼队的普通狼刀不能选择你。' },
   mechanical: { name: '机械狼', description: '可以学习一名玩家的身份，并按本局规则使用对应能力。' },
   thief: { name: '盗宝大师', art: 'mechanical', description: '持有狼、神、民三张牌。正式对局开始后，按规则在神、民身份之间切换。' },
   villager: { name: '村民', description: '通过白天的讨论和投票帮助好人找出狼人。' },
@@ -17,10 +18,42 @@ export const roles = {
 
 export const thiefDraw = ['poisoner', 'dreamer', 'hunter', 'medium'];
 
+export const presetSeatCount = 12;
+export const customBoardName = '自定义配置';
+export const defaultSheriffMode = 'double';
+export const sheriffModes = { double: '双爆吞警徽', single: '单爆吞警徽', none: '无警徽' };
+export const customRoleGroups = {
+  wolves: ['wolf', 'wolfKing'],
+  village: ['villager', 'seer', 'witch', 'hunter', 'fool', 'guard', 'medium', 'dreamer', 'poisoner', 'masked'],
+  other: ['mixed'],
+};
+export const customRoles = Object.values(customRoleGroups).flat();
+
+export function repeatableRole(role) {
+  return role === 'wolf' || role === 'villager';
+}
+
+export function customLineupError(lineup) {
+  if (!Array.isArray(lineup)) return '请选择自定义角色。';
+  if (lineup.length > presetSeatCount) return `自定义配置最多支持 ${presetSeatCount} 人。`;
+  const counts = new Set();
+  for (const role of lineup) {
+    if (!customRoles.includes(role)) return '配置中有不支持的角色。';
+    if (counts.has(role) && !repeatableRole(role)) return '特殊角色每种只能选一张。';
+    counts.add(role);
+  }
+  if (counts.has('guard') && counts.has('dreamer')) return '守卫和摄梦人不能同时入局。';
+  const hasWolf = customRoleGroups.wolves.some(role => counts.has(role));
+  const hasGod = customRoleGroups.village.some(role => role !== 'villager' && counts.has(role));
+  if (!hasWolf || !hasGod || !(counts.has('villager') || counts.has('mixed'))) return '至少选择一张狼牌、一张神牌和一张民牌。';
+  return '';
+}
+
 export const nightSchedules = {
   mechanical: ['guard', 'knife', 'witch', 'mechanical', 'medium', 'hunter'],
   classic: ['mixed', 'knife', 'witch', 'seer', 'hunter'],
   thief: ['thief-start', 'dreamer', 'knife', 'poisoner', 'medium', 'hunter'],
+  custom: ['mixed', 'guard', 'dreamer', 'knife', 'witch', 'poisoner', 'seer', 'medium', 'hunter'],
 };
 
 const fourVillagers = ['villager', 'villager', 'villager', 'villager'];
