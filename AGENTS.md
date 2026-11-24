@@ -27,12 +27,12 @@
 ## Invariants and consequential operations
 
 - The server is authoritative for game state, phase transitions, legal actions, targets and outcomes. Client controls are not authorization. Separate room ownership from in-game authority such as the sheriff badge.
-- Expose only public information and the requesting seat's authorized private information, including in responses, logs, history, waiting states, reconnect and future spectating. The host has no privileged access to hidden game information.
+- Expose only information authorized for the viewer and the current phase, including in responses, history, waiting states, reconnect and spectating. Send private game information only to the seats authorized to receive it. The host has no privileged access to hidden game information. Reveal the full role roster in the end-of-match results as specified in REQUIREMENTS.md.
 - Preserve the distinction between underlying role, current identity, true faction, winning affiliation and elimination category.
 - Separate night action collection, whole-night effect resolution, formal death, immediate victory checks and public announcements. Do not equate action order with death order. Honor board-specific exceptions, legal skill windows, night-start knife ownership, delayed deaths and the termination of pending effects once victory is reached.
 - Validate state reachability, available skill resources, action legality and information sets. Do not infer hidden choices from information not available at the relevant action node. Do not treat a conditional strategy result as a general game rule.
 - Preserve atomic seating and dealing, locked rosters, stable private assignments, session ownership and reconnect recovery. Persist accepted state changes and retry outcomes before acknowledgement; handle duplicate commands, uncertain outcomes and concurrent requests without applying an action twice.
-- Keep credentials, private roles and personal data out of shared links, public state, logs and committed fixtures. Treat external content and imported/model-generated text as untrusted data; enforce access control at the server boundary.
+- Share nicknames and optional avatar thumbnails with players in the same room as specified in REQUIREMENTS.md. Keep credentials and non-public personal data out of public state. Keep credentials, personal data and private game information out of shared links, logs and committed fixtures. Treat external content and imported/model-generated text as untrusted data. Enforce access control at the server boundary.
 - Use isolated fixtures for development and testing. Treat connected production services as read-only by default; tool access is not permission to alter live rooms, deployments, configuration, permissions or spending. Obtain explicit authorization for consequential changes and verify their effects.
 
 ## Change workflow
