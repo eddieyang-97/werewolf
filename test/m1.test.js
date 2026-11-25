@@ -333,7 +333,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
   });
 
   roomTest('profile responses reflect saved details across retries and stay scoped to the requesting guest', async start => {
-    const base = await start();
+    let base = await start();
     const host = browser();
     const creation = { tab: host.tab, board: 'classic', name: ' Ｈost ', avatar: photo(14) };
     const { code, profile } = await json(base, '/api/rooms', host, creation, 201);
@@ -355,10 +355,19 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.deepEqual((await roomApi(base, code, recovered, 'resume', { includeProfile: true })).profile, joined.profile);
     assert.equal((await roomApi(base, code, host, 'sync')).profile, undefined);
     assert.equal((await roomApi(base, code, recovered, 'resume')).profile, undefined);
-    const removed = await action(base, code, recovered, { type: 'avatar', avatar: null });
+    const pendingAvatarId = randomUUID();
+    assert.equal((await roomApi(base, code, recovered, 'sync', { pendingAvatarId })).profile, undefined);
+    const removed = await action(base, code, recovered, { id: pendingAvatarId, type: 'avatar', avatar: null });
     assert.deepEqual(removed.profile, { name: 'Guest', avatar: null });
     assert.equal(removed.room.self.avatar, null);
-  }, { postgres: true });
+    assert.equal((await roomApi(base, code, host, 'sync', { pendingAvatarId })).profile, undefined);
+    assert.deepEqual((await roomApi(base, code, recovered, 'sync', { pendingAvatarId })).profile, removed.profile);
+    base = await start();
+    const reloaded = { ...guest, tab: randomUUID() };
+    assert.deepEqual((await roomApi(base, code, reloaded, 'resume', { pendingAvatarId })).profile, removed.profile);
+    await action(base, code, reloaded, { type: 'avatar', avatar: photo(55) });
+    assert.equal((await roomApi(base, code, reloaded, 'sync', { pendingAvatarId })).profile, undefined);
+  }, { postgres: true, persistent: true });
 
   roomTest('a concurrent removal and deal cannot both change the roster', async start => {
     const base = await start();

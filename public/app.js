@@ -12,6 +12,7 @@ const tab = crypto.randomUUID();
 const codePattern = /^[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{6}$/;
 const credentialKey = code => `werewolf-room-${code}`;
 const pendingJoinKey = code => `werewolf-pending-${code}`;
+const pendingAvatarKey = code => `werewolf-avatar-edit-${code}`;
 const recentKey = 'werewolf-recent';
 const pendingCreateKey = 'werewolf-create';
 const profileKey = 'werewolf-profile';
@@ -50,38 +51,48 @@ let showingHistory = false;
 let voteClosure;
 
 function read(key) {
-  try { return localStorage.getItem(key) ?? memoryStorage.get(key); }
-  catch { return memoryStorage.get(key); }
+  if (memoryStorage.has(key)) return memoryStorage.get(key);
+  try { return localStorage.getItem(key); }
+  catch { return null; }
 }
 
 function write(key, value) {
   try {
     if (value === null) localStorage.removeItem(key);
     else localStorage.setItem(key, value);
+    memoryStorage.delete(key);
   } catch {
-    if (value === null) memoryStorage.delete(key);
-    else memoryStorage.set(key, value);
+    memoryStorage.set(key, value);
   }
 }
 
+function readRecord(key) {
+  try { return JSON.parse(read(key)) ?? {}; }
+  catch { return {}; }
+}
+
 function readProfile() {
-  try {
-    const saved = memoryStorage.get(profileKey) ?? read(profileKey);
-    const { name, avatar } = JSON.parse(saved ?? '{}') ?? {};
-    return {
-      name: typeof name === 'string' ? name : '',
-      avatar: typeof avatar === 'string' && avatar.length <= maxAvatarLength && /^[A-Za-z0-9+/]+={0,2}$/.test(avatar)
-        ? avatar : null,
-    };
-  } catch {
-    return { name: '', avatar: null };
-  }
+  const { name, avatar } = readRecord(profileKey);
+  return {
+    name: typeof name === 'string' ? name : '',
+    avatar: typeof avatar === 'string' && avatar.length <= maxAvatarLength && /^[A-Za-z0-9+/]+={0,2}$/.test(avatar)
+      ? avatar : null,
+  };
 }
 
 function rememberProfile(profile) {
   if (!profile) return;
-  memoryStorage.delete(profileKey);
-  write(profileKey, JSON.stringify(profile));
+  write(profileKey, JSON.stringify({ ...profile, revision: crypto.randomUUID() }));
+}
+
+function profileRevision() {
+  return readRecord(profileKey).revision ?? null;
+}
+
+function finishAvatarEdit(key, edit, profile) {
+  if (readRecord(key).id !== edit.id) return;
+  if (profile && edit.revision === profileRevision()) rememberProfile(profile);
+  write(key, null);
 }
 
 function newToken() {
@@ -501,6 +512,7 @@ function handleRoomError(error) {
   if (['SESSION_ENDED', 'ROOM_GONE', 'CREDENTIAL'].includes(error.code)) {
     write(credentialKey(code), null);
     write(pendingJoinKey(code), null);
+    write(pendingAvatarKey(code), null);
     if (read(recentKey) === code) write(recentKey, null);
     credential = null;
     lobby = null;
@@ -528,10 +540,18 @@ async function poll() {
   }
   const period = epoch;
   const version = sequence;
+  const key = pendingAvatarKey(code);
+  const edit = readRecord(key);
   pollInFlight = period;
   try {
-    const next = await roomRequest(resumable ? 'sync' : 'resume');
-    if (period === epoch && version === sequence) applyLobby(next);
+    const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', { pendingAvatarId: edit.id });
+    if (period === epoch && version === sequence) {
+      if (edit.id && (profile || edit.revision !== profileRevision())) {
+        finishAvatarEdit(key, edit, profile);
+        if (retryAction?.id === edit.id) retryAction = undefined;
+      }
+      applyLobby(next);
+    }
   } catch (error) {
     if (period === epoch && version === sequence) {
       handleRoomError(error);
@@ -756,13 +776,20 @@ async function action(type, details = {}) {
   const signature = JSON.stringify([type, details]);
   const id = retryAction?.signature === signature ? retryAction.id : crypto.randomUUID();
   retryAction = { signature, id };
+  const key = pendingAvatarKey(code);
+  let edit;
+  if (type === 'avatar') {
+    const pending = readRecord(key);
+    edit = pending.id === id ? pending : { id, revision: profileRevision() };
+    write(key, JSON.stringify(edit));
+  }
   waiting = true;
   sequence++;
   try {
     const result = await roomRequest('action', { command: { id, type, ...details } });
+    if (edit) finishAvatarEdit(key, edit, result.profile);
     if (period !== epoch) return;
     retryAction = undefined;
-    if (type === 'avatar') rememberProfile(result.profile);
     applyLobby(result.room);
     if (type === 'reveal') {
       const { role, extra } = result.assignment;
@@ -771,6 +798,7 @@ async function action(type, details = {}) {
         ${button('我知道了', 'close', { variant: 'identity-accept' })}</div>`, 'identity-dialog');
     } else dialog.close();
   } catch (error) {
+    if (edit && ['AVATAR', 'ACTION_ID', 'SPECTATOR_ONLY'].includes(error.code)) finishAvatarEdit(key, edit);
     if (period !== epoch) return;
     if (error.code) {
       retryAction = undefined;

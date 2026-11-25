@@ -264,6 +264,7 @@ function applyAction(room, guest, command, now, matchRules) {
     case 'avatar':
       if (command.avatar === undefined) roomError(400, 'AVATAR', '请选择照片或移除头像。');
       guest.avatar = validateAvatar(command.avatar);
+      guest.avatarActionId = command.id;
       return;
     case 'remove': {
       assertHost(room, guest);
@@ -425,7 +426,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
       });
     },
 
-    sync(code, token, tab, takeControl = false, includeProfile = false) {
+    sync(code, token, tab, { takeControl = false, includeProfile = false, pendingAvatarId } = {}) {
       validateTab(tab);
       const key = tokenKey(token);
       return withRoom(code, (room, now) => {
@@ -439,7 +440,9 @@ export function createRooms(store, clock = Date.now, matchRules) {
         }
         const timerResumed = refreshMatchTimer(room, now);
         const value = snapshot(room, guest, now, matchRules);
-        if (includeProfile) value.profile = ownProfile(guest);
+        if (includeProfile || (validId(pendingAvatarId) && guest.avatarActionId === pendingAvatarId)) {
+          value.profile = ownProfile(guest);
+        }
         return { changed: presenceChanged || timerChanged || timerResumed, value };
       });
     },
@@ -489,7 +492,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         refreshMatchTimer(room, now);
         const value = { room: snapshot(room, guest, now, matchRules) };
         if (command.type === 'reveal') value.assignment = guest.assignment;
-        if (command.type === 'avatar') value.profile = ownProfile(guest);
+        if (command.type === 'avatar' && guest.avatarActionId === command.id) value.profile = ownProfile(guest);
         return { changed: true, value };
       });
     },
