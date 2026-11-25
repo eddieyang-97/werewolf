@@ -62,6 +62,7 @@ export function matchView(match, seat) {
   if (electionOpen(match) && match.phase !== 'sheriff-signup') result.candidates = match.election.candidates;
   if (match.winner) {
     result.winner = match.winner;
+    if (match.forced) result.forced = true;
     if (match.winner !== 'abandoned') result.roster = roster(match);
   }
   return result;

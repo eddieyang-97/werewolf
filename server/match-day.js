@@ -99,10 +99,29 @@ export function resolveGun(match, target) {
   advanceDeathFlow(match);
 }
 
-export function resolveBadge(match, seat) {
+function setBadge(match, seat) {
   match.sheriff = seat;
   addHistory(match, 'day', 'badge', { seat });
+}
+
+export function resolveBadge(match, seat) {
+  setBadge(match, seat);
   advanceDeathFlow(match);
+}
+
+export function transferBadge(match, seat) {
+  setBadge(match, seat);
+  changePhase(match, match.phase);
+}
+
+export function markDeparture(match, seat) {
+  const deaths = formalDeaths(match, [{ seat, cause: 'host-elimination', time: 'day' }]);
+  revealDeaths(match, deaths);
+  addHistory(match, 'day', 'host-elimination', { seat });
+  if (match.winner) return;
+  if (match.sheriff === seat) setBadge(match, null);
+  if (match.phase === 'speech-direction' && match.sheriff === null) beginDiscussion(match);
+  else changePhase(match, match.phase);
 }
 
 function concludeDelayedDeaths(match, pending, interrupted = false) {

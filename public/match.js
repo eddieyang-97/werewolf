@@ -25,8 +25,9 @@ const labels = {
   'self-destruct': '自爆', 'open-election': '开始警长竞选', 'publish-night': '公布昨夜信息',
   candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪', duel: '骑士决斗',
   badge: '交接警徽', direction: '选择发言方向', 'open-nomination': '开始警长归票', nominate: '选择归票对象',
-  'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '结束投票', 'next-night': '进入天黑阶段', rematch: '再来一局',
+  'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
+  'host-eliminate': '标记出局', 'host-transfer-badge': '移交警徽',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
   'wolf-recognition': '狼队相认',
   learn: '机械狼学习身份', medium: '通灵师查验', seer: '预言家查验', dreamer: '摄梦人选择目标',
@@ -58,7 +59,17 @@ export function timerText(milliseconds) {
   return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-export function matchPanel(match, button, connected) {
+export function exileVote(match) {
+  if (match?.phase === 'exile-vote' || match?.phase === 'exile-runoff-vote') {
+    return match.actions?.find(action => action.kind === 'vote');
+  }
+}
+
+export function matchCommand({ matchId, window }, kind, choice) {
+  return JSON.stringify({ kind, matchId, window, choice });
+}
+
+export function matchPanel(match, button, connected, seatVote) {
   const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
@@ -72,9 +83,11 @@ export function matchPanel(match, button, connected) {
   const privateResults = self.inspections.map(result => `<li>第${result.round}晚 · ${result.seat}号 · ${
     result.claws ? (result.claws === 2 ? '双爪' : '单爪') : result.role ? roles[result.role].name : result.team === 'wolves' ? '狼人' : '好人'
   }</li>`).join('');
+  const activeActions = seatVote ? actions.filter(action => action !== seatVote) : actions;
   return `<section class="match-panel" aria-label="当前对局">
     <h2>${finished ? '对局结果' : phase === 'night' ? `第${round}晚` : `第${round}天`}</h2>
     ${publicInfo ? `<p>${publicInfo}</p>` : actions.length ? '' : '<p>请等待夜间操作完成</p>'}
+    ${match.forced ? '<p>房主判定结果</p>' : ''}
     ${speaker ? `<p>${speaker}号正在发言</p>` : ''}${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
@@ -82,11 +95,16 @@ export function matchPanel(match, button, connected) {
     ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
     ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
     ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}
-    <div class="match-actions">${actions.map(entry => entry.kind === 'candidacy'
+    ${seatVote ? '<p class="vote-instruction">请点击可投票的座位</p>' : ''}
+    <div class="match-actions">${seatVote?.options.includes(null) ? button('弃票', 'confirm-vote', {
+      value: matchCommand(match, 'vote', null), disabled: !connected,
+    }) : ''}${activeActions.map(entry => entry.kind === 'candidacy'
       ? entry.options.map(choice => button(choiceLabel(choice, entry), 'match-send', {
-        value: JSON.stringify({ kind: entry.kind, matchId: match.matchId, window: match.window, choice }), disabled: !connected,
+        value: matchCommand(match, entry.kind, choice), disabled: !connected,
       })).join('')
-      : button(matchLabel(entry), 'match-control', { value: JSON.stringify({ kind: entry.kind, matchId: match.matchId, window: match.window }), disabled: !connected })).join('')}</div>
+      : button(matchLabel(entry), 'match-control', {
+        value: matchCommand(match, entry.kind), disabled: !connected, variant: entry.kind === 'night-action' ? 'night-action' : 'primary',
+      })).join('')}</div>
     ${privateResults ? `<details><summary>我的查验记录</summary><ul>${privateResults}</ul></details>` : ''}
     ${cards ? `<ul class="match-roster">${cards}</ul>` : ''}
     ${button('对局详情', 'match-history', { variant: 'quiet' })}
@@ -97,7 +115,7 @@ function historyText(event) {
   const seats = event.seats?.join('、');
   const label = {
     exile: '放逐', explosion: '自爆', shot: '开枪带走', departed: '出局', charmed: '因魅惑出局',
-    'exile-vote': '放逐票', 'sheriff-vote': '警长票',
+    'exile-vote': '放逐票', 'sheriff-vote': '警长票', 'host-elimination': '被房主标记出局',
   }[event.kind];
   if (event.kind === 'night-result') return seats ? `${seats}号出局` : '平安夜';
   if (event.kind === 'peaceful-day') return '无人被放逐';
