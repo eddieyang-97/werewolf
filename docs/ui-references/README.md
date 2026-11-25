@@ -2,6 +2,8 @@
 
 The supplied screenshots are kept here in the local checkout for design review. Git ignores the original JPEGs. The M1 app uses the authorized artwork crops in `public/art/`.
 
+Fifteen larger role illustrations were cropped from the supplied role-introduction screenshots. The private identity card pairs them with rules for this app.
+
 | Local folder | Images | Reference screens |
 | --- | --- | --- |
 | `01-room-setup/` | 10 | Home, board selection, room settings, seating, private role reveal, and Night 1. |
