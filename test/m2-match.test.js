@@ -236,6 +236,287 @@ test('custom town elimination continues after the only god dies and ends on the 
   assert.equal(room.match.phase, 'finished');
 });
 
+test('Magician redirects private actions while preserving nominated seats and the swap limit', () => {
+  const room = createRoom('custom', undefined, ['magician', 'wolf', 'villager', 'witch', 'seer', 'villager', 'medium', 'wolf']);
+  room.sheriffMode = 'none';
+  const [magician, wolf, victim, witch, seer, host, medium] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  const { match } = room;
+  const swap = controls(room, magician);
+  assert.equal(swap.actions[0].action, 'swap');
+  assert.equal(swap.actions[0].multiple, true);
+  assert.ok(swap.actions[0].options.includes(magician.seat));
+  assert.equal(controls(room, host).actions, undefined);
+  for (const choice of [[wolf.seat], [wolf.seat, wolf.seat], [wolf.seat, victim.seat, magician.seat]]) {
+    assert.equal(executeMatchChoice(room, magician, { matchId: swap.matchId, window: swap.window,
+      kind: 'night-action', choice }, matchRules), false);
+  }
+  play(magician, 'night-action', [wolf.seat, victim.seat]);
+  play(wolf, 'night-action', wolf.seat);
+  assert.equal(controls(room, witch).self.wolfTarget, wolf.seat);
+  assert.equal(controls(room, host).self.wolfTarget, undefined);
+  play(witch, 'night-action', null);
+  play(seer, 'night-action', victim.seat);
+  play(medium, 'night-action', wolf.seat);
+  assert.deepEqual(controls(room, seer).self.inspections, [{ kind: 'seer', round: 1, seat: victim.seat, team: 'wolves' }]);
+  assert.deepEqual(controls(room, medium).self.inspections, [{ kind: 'medium', round: 1, seat: wolf.seat, role: 'villager' }]);
+  assert.equal(playerAt(match, wolf.seat).death, undefined);
+  assert.deepEqual(match.day.deaths.map(({ seat }) => seat), [victim.seat]);
+  play(host, 'publish-night');
+  while (['last-words', 'discussion'].includes(match.phase)) play(host, 'finish-speech');
+  play(host, 'open-exile');
+  for (const guest of room.guests.filter(guest => guest !== victim)) play(guest, 'vote', null);
+  play(host, 'next-night');
+  const nextSwap = controls(room, magician).actions[0];
+  assert.equal(nextSwap.action, 'swap');
+  assert.ok(!nextSwap.options.includes(wolf.seat));
+  assert.ok(nextSwap.options.includes(witch.seat));
+  play(magician, 'night-action', []);
+  assert.equal(match.night.swap, undefined);
+});
+
+test('a night charm follows a poisoned Wolf Beauty and blocks the Hunter gun', () => {
+  const room = createRoom('custom', undefined, ['wolfBeauty', 'wolf', 'witch', 'hunter', 'guard', 'villager', 'villager']);
+  room.sheriffMode = 'none';
+  const [beauty, wolf, witch, hunter, guard, host] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  const { match } = room;
+  play(guard, 'night-action', hunter.seat);
+  const knife = controls(room, beauty);
+  assert.deepEqual(knife.self.teammates, [wolf.seat]);
+  assert.equal(knife.actions[0].action, 'knife');
+  assert.ok(!knife.actions[0].options.includes(beauty.seat));
+  play(beauty, 'night-action', null);
+  assert.equal(controls(room, beauty).actions[0].action, 'charm');
+  assert.equal(controls(room, host).actions, undefined);
+  play(beauty, 'night-action', hunter.seat);
+  play(witch, 'night-action', `poison:${beauty.seat}`);
+  assert.equal(controls(room, hunter).self.nightAction.canShoot, false);
+  play(hunter, 'night-action', 'confirm');
+  assert.deepEqual(controls(room, host).departed, []);
+  assert.equal(controls(room, beauty).self.canSelfDestruct, false);
+  play(host, 'publish-night');
+  assert.deepEqual(controls(room, host).departed, [beauty.seat, hunter.seat]);
+  while (match.phase === 'last-words') play(host, 'finish-speech');
+  assert.equal(match.phase, 'discussion');
+});
+
+test('Wolf Beauty may pick the same target after a night with no legal charm', () => {
+  const room = createRoom('custom', undefined, ['wolfBeauty', 'villager', 'villager']);
+  room.customRules = { victoryMode: 'town' };
+  room.sheriffMode = 'none';
+  const [beauty, target, victim] = room.guests;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  const nextNight = () => {
+    play(beauty, 'publish-night');
+    while (['last-words', 'discussion'].includes(room.match.phase)) play(beauty, 'finish-speech');
+    play(beauty, 'open-exile');
+    for (const guest of [beauty, target]) play(guest, 'vote', null);
+    play(beauty, 'next-night');
+  };
+  startMatch(room, matchRules);
+  play(beauty, 'night-action', victim.seat);
+  play(beauty, 'night-action', target.seat);
+  nextNight();
+  play(beauty, 'night-action', null);
+  assert.equal(room.match.phase, 'dawn');
+  assert.equal(room.match.night.charm, undefined);
+  nextNight();
+  play(beauty, 'night-action', null);
+  assert.deepEqual(controls(room, beauty).actions[0].options, [target.seat]);
+});
+
+for (const duel of [false, true]) {
+  test(`Wolf Beauty's daytime charm ${duel ? 'is cancelled by a Knight duel' : 'follows exile last words'}`, () => {
+    const room = createRoom('custom', undefined, ['wolfBeauty', 'wolf', 'knight', 'hunter', 'villager', 'villager']);
+    room.sheriffMode = 'none';
+    const [beauty, wolf, knight, hunter, host] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(wolf, 'night-action', null);
+    play(beauty, 'night-action', hunter.seat);
+    play(hunter, 'night-action', 'confirm');
+    assert.equal(controls(room, knight).actions, undefined);
+    play(host, 'publish-night');
+    if (duel) {
+      play(knight, 'duel', beauty.seat);
+      assert.equal(playerAt(match, hunter.seat).death, undefined);
+      assert.equal(match.history.at(-1).kind, 'duel');
+    } else {
+      while (match.phase === 'discussion') play(host, 'finish-speech');
+      play(host, 'open-exile');
+      assert.ok(!controls(room, knight).actions.some(action => action.kind === 'duel'));
+      for (const guest of room.guests) play(guest, 'vote', guest === beauty ? null : beauty.seat);
+      assert.equal(match.phase, 'last-words');
+      assert.equal(playerAt(match, hunter.seat).death, undefined);
+      play(host, 'finish-speech');
+      assert.equal(playerAt(match, hunter.seat).death.cause, 'charm');
+    }
+    assert.equal(match.phase, 'next-night');
+  });
+}
+
+for (const lastWolf of [false, true]) {
+  test(`a Knight duel against the Wolf King ${lastWolf ? 'ends play immediately' : 'allows the Wolf King to shoot'}`, () => {
+    const room = createRoom('custom', undefined, ['wolfKing', 'knight', 'seer', 'villager', 'villager',
+      ...(lastWolf ? [] : ['wolf'])]);
+    room.sheriffMode = 'none';
+    const [king, knight, seer, host] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(king, 'night-action', null);
+    play(seer, 'night-action', king.seat);
+    play(host, 'publish-night');
+    play(knight, 'duel', king.seat);
+    if (lastWolf) {
+      assert.equal(match.winner, 'village');
+      assert.equal(controls(room, king).actions, undefined);
+    } else {
+      assert.equal(controls(room, king).actions[0].kind, 'shoot');
+      assert.equal(controls(room, host).phase, 'death-resolution');
+      play(king, 'shoot', null);
+      assert.equal(match.phase, 'next-night');
+      assert.equal(playerAt(match, knight.seat).used.duel, true);
+    }
+  });
+}
+
+test('an incorrect Knight duel against Mixed Blood has last words and resumes day play', () => {
+  const room = createRoom('custom', undefined, ['knight', 'wolf', 'mixed', 'seer', 'villager']);
+  const [knight, wolf, mixed, seer, host] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  const { match } = room;
+  play(mixed, 'night-action', wolf.seat);
+  play(wolf, 'night-action', null);
+  play(seer, 'night-action', wolf.seat);
+  play(host, 'open-election');
+  assert.ok(!controls(room, knight).actions.some(action => action.kind === 'duel'));
+  for (const guest of room.guests) play(guest, 'candidacy', false);
+  play(host, 'publish-night');
+  const speaker = controls(room, host).speaker;
+  play(knight, 'duel', mixed.seat);
+  assert.equal(match.phase, 'last-words');
+  assert.equal(controls(room, host).speaker, knight.seat);
+  assert.equal(playerAt(match, mixed.seat).death, undefined);
+  play(host, 'finish-speech');
+  if (speaker !== knight.seat) assert.equal(controls(room, host).speaker, speaker);
+  while (match.phase === 'discussion') play(host, 'finish-speech');
+  play(host, 'open-exile');
+  assert.equal(match.phase, 'exile-vote');
+  assert.ok(!match.day.ballot.voters.includes(knight.seat));
+});
+
+for (const transferBadge of [true, false]) {
+  test(`a sheriff Knight's failed duel clears their nomination when the badge is ${transferBadge ? 'transferred' : 'destroyed'}`, () => {
+    const room = createRoom('custom', undefined, ['knight', 'wolf', 'wolf', 'fool', 'villager', 'villager']);
+    const [knight, oldTarget, newTarget, successor, host, good] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(oldTarget, 'night-action', null);
+    play(host, 'open-election');
+    for (const guest of room.guests) play(guest, 'candidacy', guest === knight);
+    play(host, 'publish-night');
+    play(knight, 'direction', 1);
+    while (match.phase === 'discussion') play(host, 'finish-speech');
+    play(host, 'open-nomination');
+    play(knight, 'nominate', [oldTarget.seat]);
+    assert.equal(match.phase, 'exile-locked');
+    play(knight, 'duel', good.seat);
+    play(host, 'finish-speech');
+    play(knight, 'badge', transferBadge ? successor.seat : null);
+    assert.equal(match.phase, transferBadge ? 'nomination' : 'exile-locked');
+    assert.equal(match.day.nominations, undefined);
+    assert.equal(controls(room, oldTarget).self.canSelfDestruct, false);
+    if (transferBadge) play(successor, 'nominate', [newTarget.seat]);
+    play(host, 'open-exile');
+    for (const guest of room.guests.filter(guest => guest !== knight)) {
+      const target = guest === successor ? newTarget.seat : guest === host ? oldTarget.seat : null;
+      play(guest, 'vote', target);
+    }
+    const ballot = match.history.findLast(event => event.kind === 'exile-vote').ballot;
+    assert.deepEqual(ballot.groups, [
+      { seat: oldTarget.seat, count: 1, voters: [host.seat] },
+      { seat: newTarget.seat, count: transferBadge ? 1.5 : 1, voters: [successor.seat] },
+    ]);
+    assert.equal(playerAt(match, newTarget.seat).death?.cause, transferBadge ? 'exile' : undefined);
+  });
+}
+
+test('a successful Knight duel settles the Masked departure before the next night', () => {
+  const room = createRoom('custom', undefined, ['knight', 'wolf', 'wolf', 'masked', 'villager', 'villager']);
+  room.sheriffMode = 'none';
+  const [knight, wolf, , masked, host] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  startMatch(room, matchRules);
+  const { match } = room;
+  play(wolf, 'night-action', masked.seat);
+  play(host, 'publish-night');
+  assert.equal(playerAt(match, masked.seat).death, undefined);
+  play(knight, 'duel', wolf.seat);
+  assert.equal(match.phase, 'next-night');
+  assert.equal(playerAt(match, masked.seat).death.time, 'delayed');
+  assert.deepEqual(controls(room, host).departed, [wolf.seat, masked.seat]);
+});
+
+for (const outcome of ['shoot', 'transfer', 'last-wolf']) {
+  test(`a pending Masked departure during a Wolf King duel preserves ${outcome === 'last-wolf' ? 'immediate victory' : outcome === 'shoot' ? 'shot eligibility' : 'badge eligibility'}`, () => {
+    const room = createRoom('custom', undefined, ['knight', 'wolfKing', 'masked', 'villager', 'villager',
+      ...(outcome === 'last-wolf' ? [] : ['wolf'])]);
+    const [knight, king, masked, host] = room.guests;
+    room.hostId = host.id;
+    const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+    startMatch(room, matchRules);
+    const { match } = room;
+    play(king, 'night-action', masked.seat);
+    play(host, 'open-election');
+    for (const guest of room.guests) play(guest, 'candidacy', guest === king);
+    play(host, 'publish-night');
+    play(king, 'direction', 1);
+    assert.equal(playerAt(match, masked.seat).death, undefined);
+    play(knight, 'duel', king.seat);
+    assert.equal(playerAt(match, masked.seat).death, undefined);
+    if (outcome === 'last-wolf') {
+      assert.equal(match.winner, 'village');
+      assert.deepEqual(controls(room, host).departed, [king.seat]);
+      assert.equal(controls(room, king).actions, undefined);
+      return;
+    }
+    assert.deepEqual(controls(room, host).departed, [king.seat]);
+    assert.ok(controls(room, king).actions.find(action => action.kind === 'shoot').options.includes(masked.seat));
+    if (outcome === 'shoot') {
+      play(king, 'shoot', masked.seat);
+      assert.equal(controls(room, host).speaker, masked.seat);
+      assert.equal(playerAt(match, masked.seat).death.cause, 'shot');
+      play(host, 'finish-speech');
+      play(king, 'badge', host.seat);
+      assert.deepEqual(match.history.slice(-3).map(event => event.kind), ['duel', 'shot', 'badge']);
+    } else {
+      play(king, 'shoot', null);
+      assert.equal(playerAt(match, masked.seat).death, undefined);
+      play(king, 'badge', masked.seat);
+      assert.equal(playerAt(match, masked.seat).death.time, 'delayed');
+      assert.equal(match.sheriff, masked.seat);
+      play(masked, 'badge', host.seat);
+      assert.deepEqual(match.history.slice(-4).map(event => event.kind), ['duel', 'badge', 'departed', 'badge']);
+    }
+    assert.equal(match.sheriff, host.seat);
+    assert.equal(match.phase, 'next-night');
+  });
+}
+
 for (const sheriffMode of ['double', 'single']) {
   test(`${sheriffMode} badge mode applies its self-destruct limit across D1 and D2`, () => {
     const room = createRoom('custom', undefined, ['wolfKing', 'wolf', 'wolf', 'seer', 'villager', 'villager', 'villager']);

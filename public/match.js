@@ -23,7 +23,7 @@ const phaseTitles = {
 
 const labels = {
   'self-destruct': '自爆', 'open-election': '开始警长竞选', 'publish-night': '公布昨夜信息',
-  candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪',
+  candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪', duel: '骑士决斗',
   badge: '交接警徽', direction: '选择发言方向', 'open-nomination': '开始警长归票', nominate: '选择归票对象',
   'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
@@ -33,6 +33,7 @@ const labels = {
   learn: '机械狼学习身份', medium: '通灵师查验', seer: '预言家查验', dreamer: '摄梦人选择目标',
   mixed: '混血儿选择榜样', 'mechanical-guard': '机械守卫', 'mechanical-poison': '机械女巫',
   poison: '毒师请选择目标', 'extra-knife': '机械狼额外刀', 'gun-check': '查看枪态',
+  charm: '狼美人选择魅惑目标', swap: '魔术师交换号码牌',
 };
 
 export function matchLabel(control) {
@@ -78,6 +79,7 @@ export function matchPanel(match, button, connected, seatVote) {
   const cards = (match.roster ?? []).map(({ seat, role, extra, side }) => `<li>${seat}号 · ${roles[role].name}${extra ? `（${extra.map(id => roles[id].name).join('、')}）` : ''}${side === match.winner ? ' ✓' : ''}</li>`).join('');
   const nightResult = match.history.findLast(event => event.kind === 'night-result' && event.round === round);
   const results = phase !== 'night' && nightResult ? `<p>${nightResult.seats.length ? `昨夜出局：${nightResult.seats.join('、')}号` : '昨夜平安，无人出局'}</p>` : '';
+  const duel = match.history.findLast(event => event.kind === 'duel' && event.round === round);
   const privateResults = self.inspections.map(result => `<li>第${result.round}晚 · ${result.seat}号 · ${
     result.claws ? (result.claws === 2 ? '双爪' : '单爪') : result.role ? roles[result.role].name : result.team === 'wolves' ? '狼人' : '好人'
   }</li>`).join('');
@@ -86,7 +88,7 @@ export function matchPanel(match, button, connected, seatVote) {
     <h2>${finished ? '对局结果' : phase === 'night' ? `第${round}晚` : `第${round}天`}</h2>
     ${publicInfo ? `<p>${publicInfo}</p>` : actions.length ? '' : '<p>请等待夜间操作完成</p>'}
     ${match.forced ? '<p>房主判定结果</p>' : ''}
-    ${speaker ? `<p>${speaker}号正在发言</p>` : ''}${results}${tally}${nightInfo}
+    ${speaker ? `<p>${speaker}号正在发言</p>` : ''}${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
     ${sheriff ? `<p>${sheriff}号持有警徽</p>` : ''}
@@ -112,7 +114,7 @@ export function matchPanel(match, button, connected, seatVote) {
 function historyText(event) {
   const seats = event.seats?.join('、');
   const label = {
-    exile: '放逐', explosion: '自爆', shot: '开枪带走', departed: '出局',
+    exile: '放逐', explosion: '自爆', shot: '开枪带走', departed: '出局', charmed: '因魅惑出局',
     'exile-vote': '放逐票', 'sheriff-vote': '警长票', 'host-elimination': '被房主标记出局',
   }[event.kind];
   if (event.kind === 'night-result') return seats ? `${seats}号出局` : '平安夜';
@@ -120,6 +122,7 @@ function historyText(event) {
   if (event.kind === 'sheriff' || event.kind === 'badge') return event.seat ? `${event.seat}号持有警徽` : '警徽流失';
   if (event.kind === 'nomination') return seats ? `警长归票：${seats}号` : '警长不归票';
   if (event.kind === 'direction') return `从${event.anchor}号${event.direction < 0 ? '左侧' : '右侧'}起发言`;
+  if (event.kind === 'duel') return `骑士 ${event.seat} 号决斗 ${event.target} 号，${event.won ? event.target : event.seat} 号出局`;
   if (event.counts) return `${label}：${event.counts.map(({ seat, count }) => `${seat}号 ${count}票`).join('、') || '无有效票'}`;
   return `${event.seat}号${label}`;
 }

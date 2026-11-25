@@ -446,9 +446,10 @@ describe('room HTTP', { concurrency: 4 }, () => {
     let base = await start({ clock, matchRules });
     const host = browser();
     const create = { tab: host.tab, board: 'custom', name: '房主' };
-    const lineup = ['villager', 'villager', 'wolf', 'wolfKing', 'seer'];
+    const lineup = ['villager', 'villager', 'wolf', 'wolfKing', 'wolfBeauty', 'seer', 'magician', 'knight'];
     assert.equal((await fetch(`${base}/create/custom`)).status, 200);
     for (const invalid of [null, [], ['wolf', 'seer', 'seer', 'villager'], ['wolf', 'seer', 'thief', 'villager'],
+      ['mechanical', 'knight', 'villager'], ['wolfBeauty', 'magician', 'magician', 'villager'],
       ['wolf', 'villager'], ['wolf', 'guard', 'dreamer', 'villager'], [...lineup, ...Array(8).fill('villager')]]) {
       const result = await json(base, '/api/rooms', host, { ...create, lineup: invalid }, 400);
       assert.equal(result.code, 'LINEUP');
@@ -529,14 +530,28 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.deepEqual((await action(base, code, host, { type: 'reveal' })).assignment, assignments[0]);
     await action(base, code, host, deal);
     await action(base, code, host, { type: 'match-start' });
+    const magician = participants[assignments.findIndex(card => card.role === 'magician')];
+    const swapView = (await roomApi(base, code, magician, 'sync')).match;
+    assert.equal(swapView.actions[0].action, 'swap');
+    const villagers = assignments.flatMap((card, index) => card.role === 'villager' ? [index + 1] : []);
+    const swap = { type: 'match-choice', matchId: swapView.matchId, window: swapView.window,
+      kind: 'night-action', choice: villagers, id: randomUUID() };
+    const swapped = await action(base, code, magician, swap);
     base = await start({ clock, matchRules });
+    assert.deepEqual(await action(base, code, magician, swap), swapped);
     const kingIndex = assignments.findIndex(card => card.role === 'wolfKing');
     const kingView = await roomApi(base, code, participants[kingIndex], 'resume');
     assert.equal(kingView.match.actions[0].action, 'wolf-recognition');
     assert.deepEqual(kingView.match.actions[0].options, ['confirm']);
-    assert.deepEqual(kingView.match.self.teammates, [assignments.findIndex(card => card.role === 'wolf') + 1]);
+    assert.deepEqual(kingView.match.self.teammates, assignments.flatMap((card, index) =>
+      ['wolf', 'wolfBeauty'].includes(card.role) ? [index + 1] : []));
     await action(base, code, participants[kingIndex], { type: 'match-choice', matchId: kingView.match.matchId,
       window: kingView.match.window, kind: 'night-action', choice: 'confirm' });
+    const beauty = participants[assignments.findIndex(card => card.role === 'wolfBeauty')];
+    const charmView = (await roomApi(base, code, beauty, 'sync')).match;
+    assert.equal(charmView.actions[0].action, 'charm');
+    await action(base, code, beauty, { type: 'match-choice', matchId: charmView.matchId,
+      window: charmView.window, kind: 'night-action', choice: villagers[0] });
     const seer = participants[assignments.findIndex(card => card.role === 'seer')];
     const seerView = (await roomApi(base, code, seer, 'sync')).match;
     await action(base, code, seer, { type: 'match-choice', matchId: seerView.matchId, window: seerView.window,

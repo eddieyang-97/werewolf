@@ -1,6 +1,6 @@
 import {
-  advanceDeathFlow, advanceDiscussion, advanceRunoff, canSelfDestruct, closeExileVote, openExileVote,
-  markDeparture, openNomination, publishNight, resolveBadge, resolveGun, selfDestruct, setSpeechDirection,
+  advanceDeathFlow, advanceDiscussion, advanceRunoff, canSelfDestruct, closeExileVote, duelTargets, markDeparture,
+  openExileVote, openNomination, publishNight, resolveBadge, resolveDuel, resolveGun, selfDestruct, setSpeechDirection,
   settleNomination, transferBadge,
 } from './match-day.js';
 import {
@@ -49,6 +49,8 @@ function controls(match, player, host, rules) {
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
 
   if (canSelfDestruct(match, player)) add('self-destruct');
+  const duel = duelTargets(match, player);
+  if (duel.length) add('duel', duel);
   const { phase, night, election } = match;
   const seat = player.seat;
   const ballot = getBallot(match);
@@ -70,7 +72,7 @@ function controls(match, player, host, rules) {
       const { kind } = night.step;
       const fixed = fixedChoices(match, player, kind);
       const options = fixed ?? rules.nightChoices(match, player, kind);
-      if (options.length) add('night-action', options, { action: kind });
+      if (options.length) add('night-action', options, { action: kind, ...(kind === 'swap' ? { multiple: true } : {}) });
       break;
     }
     case 'dawn':
@@ -139,6 +141,7 @@ function validChoice(action, choice) {
   if (!action.options) return choice === undefined;
   if (!action.multiple) return action.options.includes(choice);
   return Array.isArray(choice) && choice.length <= action.options.length && new Set(choice).size === choice.length
+    && (action.action !== 'swap' || choice.length === 0 || choice.length === 2)
     && choice.every(seat => action.options.includes(seat));
 }
 
@@ -183,6 +186,7 @@ function applyChoice(match, player, kind, choice, rules, now) {
       else advanceDiscussion(match);
       break;
     case 'shoot': resolveGun(match, choice); break;
+    case 'duel': resolveDuel(match, player, choice); break;
     case 'badge': resolveBadge(match, choice); break;
     case 'host-eliminate': markDeparture(match, choice); break;
     case 'host-transfer-badge': transferBadge(match, choice); break;

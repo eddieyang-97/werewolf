@@ -54,7 +54,7 @@ export function matchView(match, seat) {
       inspections: player.privateEvents,
       copied: player.copy?.role,
       disguise: player.form,
-      model: player.model,
+      model: player.modelChoice ?? player.model,
       canSelfDestruct: canSelfDestruct(match, player),
       ...privateNight(match, player),
     };

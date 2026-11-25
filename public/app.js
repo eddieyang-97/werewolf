@@ -95,6 +95,12 @@ function roleTile(roleId) {
   return `<div class="role-tile">${roleMark(roleId)}<span>${roles[roleId].name}</span></div>`;
 }
 
+function roleDescription(roleId) {
+  const { description, notes } = roles[roleId];
+  return `<p>${escape(description)}</p>${notes?.length
+    ? `<ul class="role-notes">${notes.map(note => `<li>${escape(note)}</li>`).join('')}</ul>` : ''}`;
+}
+
 function boardDetails(boardId, lineup) {
   return boardId === 'custom' ? { name: customBoardName, preview: lineup } : boards[boardId];
 }
@@ -629,6 +635,10 @@ async function submit(event) {
   if (form.dataset.form === 'match-choice') {
     const command = JSON.parse(data.get('command'));
     const choices = data.getAll('choice').map(value => JSON.parse(value));
+    if (form.hasAttribute('data-swap') && choices.length !== 0 && choices.length !== 2) {
+      form.querySelector('[role="alert"]').textContent = '请选择两个不同的号码，或留空跳过。';
+      return;
+    }
     return action('match-choice', { ...command, choice: form.dataset.multiple === 'true' ? choices : choices[0] });
   }
   if (form.dataset.form === 'join-code') {
@@ -709,7 +719,7 @@ async function action(type, details = {}) {
     applyLobby(result.room);
     if (type === 'reveal') {
       const { role, extra } = result.assignment;
-      showDialog('我的身份', `<div class="identity"><div class="identity-detail">${roleMark(role)}<h3>${roles[role].name}</h3><p>${roles[role].description}</p>
+      showDialog('我的身份', `<div class="identity"><div class="identity-detail" tabindex="0" role="region" aria-labelledby="identity-role">${roleMark(role)}<h3 id="identity-role">${roles[role].name}</h3>${roleDescription(role)}
         ${extra ? `<h4 class="meta-label">你的额外牌</h4><div class="extra-cards">${extra.map(roleTile).join('')}</div>` : ''}</div>
         ${button('我知道了', 'close', { variant: 'identity-accept' })}</div>`, 'identity-dialog');
     } else dialog.close();
@@ -752,12 +762,15 @@ function openMatchControl(command) {
   const label = matchLabel(control);
   if (control.options) {
     const type = control.multiple ? 'checkbox' : 'radio';
+    const swap = control.action === 'swap';
     const options = control.options.map(value => `<label class="match-option"><input type="${type}" name="choice" value="${escape(JSON.stringify(value))}" ${control.multiple ? '' : 'required'}> ${escape(choiceLabel(value, control, lobby.seats))}</label>`).join('');
     const gun = self.nightAction?.kind === 'gun-check' ? `<p>${self.nightAction.canShoot ? '可以开枪' : '不能开枪'}</p>` : '';
     const knife = control.action === 'witch' && Object.hasOwn(self, 'wolfTarget')
       ? `<p>${self.wolfTarget ? `狼刀目标：${self.wolfTarget}号` : '今晚没有普通狼刀目标。'}</p>` : '';
-    return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}">
-      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}<div class="match-options">${options}</div>
+    const duel = control.kind === 'duel' ? '<p>决斗会公开。选中狼人则对方出局，选中好人则你出局。</p>' : '';
+    return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}>
+      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
+      ${swap ? '<p class="choice-error" role="alert"></p>' : ''}
       <button type="submit" class="button primary">确认</button>
     </form>`);
   }
@@ -794,7 +807,7 @@ function showHelp(tabName = 'basic') {
     const categories = [['狼人阵营', id => wolves.has(id)], ['好人阵营', id => !wolves.has(id) && id !== 'mixed'], ['其他角色', id => id === 'mixed']];
     pages.roles = `<label for="role-query">搜索角色名称</label><input id="role-query" data-role-query placeholder="例如 通灵师">${categories.map(([name, filter]) => {
       const list = ids.filter(filter);
-      return list.length ? `<section class="help-role-group"><h3>${name}</h3>${list.map(id => `<details data-role-name="${roles[id].name}"><summary>${roleMark(id)}${roles[id].name}</summary><p>${roles[id].description}</p></details>`).join('')}</section>` : '';
+      return list.length ? `<section class="help-role-group"><h3>${name}</h3>${list.map(id => `<details data-role-name="${roles[id].name}"><summary>${roleMark(id)}${roles[id].name}</summary>${roleDescription(id)}</details>`).join('')}</section>` : '';
     }).join('')}`;
   }
   showDialog('用法简介', tabs + pages[tabName]);
