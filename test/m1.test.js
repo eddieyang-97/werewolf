@@ -118,7 +118,7 @@ async function setup(base, board, avatar) {
   assert.equal((await json(base, '/api/rooms', host, { tab: host.tab, board, name: '房主' }, 201)).code, code);
   const room = await roomApi(base, code, host, 'resume');
   assert.equal(room.self.seat, 1);
-  assert.deepEqual(room.seats[0], room.self);
+  assert.deepEqual(room.self, { ...room.seats[0], revealed: false });
   return { code, host };
 }
 
@@ -183,6 +183,57 @@ function photo(color) {
 }
 
 describe('room HTTP', { concurrency: 4 }, () => {
+  roomTest('host transfer preserves seats and moves force-end authority across retry and restart', async start => {
+    const options = { matchRules };
+    let base = await start(options);
+    const [host, successor, other] = Array.from({ length: 3 }, browser);
+    const { code } = await json(base, '/api/rooms', host, {
+      tab: host.tab, board: 'custom', lineup: ['wolf', 'seer', 'villager'], name: '房主',
+    }, 201);
+    const act = (player, command, status) => action(base, code, player, command, status);
+    const sync = player => roomApi(base, code, player, 'sync');
+    for (const [index, guest] of [successor, other].entries()) {
+      await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
+      await act(guest, { type: 'seat', seat: index + 2 });
+    }
+    await act(host, { type: 'deal' });
+    const cards = await Promise.all([host, successor, other].map(async player => {
+      const { assignment } = await act(player, { type: 'reveal' });
+      await act(player, { type: 'acknowledge' });
+      return assignment;
+    }));
+    const { room: started } = await act(host, { type: 'match-start' });
+    const target = started.seats[1].id;
+    const transfer = { type: 'host-transfer', target, id: randomUUID() };
+    assert.equal((await act(other, transfer, 403)).code, 'HOST_ONLY');
+    await roomApi(base, code, successor, 'disconnect');
+    assert.equal((await act(host, transfer, 409)).code, 'HOST_TARGET');
+    await sync(successor);
+    const { room: moved } = await act(host, transfer);
+    assert.equal(moved.self.host, false);
+    assert.equal(moved.match.canAbandon, undefined);
+    assert.deepEqual(moved.seats.map(seat => seat.id), started.seats.map(seat => seat.id));
+
+    base = await start(options);
+    assert.equal((await act(host, transfer)).room.seats[1].host, true);
+    const restored = await sync(successor);
+    assert.equal(restored.self.host, true);
+    assert.equal(restored.match.phase, started.match.phase);
+    assert.equal(restored.match.canAbandon, started.match.canAbandon);
+    assert.deepEqual((await act(host, { type: 'reveal' })).assignment, cards[0]);
+    assert.deepEqual((await act(successor, { type: 'reveal' })).assignment, cards[1]);
+
+    const finish = { type: 'match-abandon', matchId: restored.match.canAbandon, winner: 'village', id: randomUUID() };
+    assert.equal((await act(host, finish, 403)).code, 'HOST_ONLY');
+    assert.equal((await act(successor, { ...finish, winner: 'third' }, 409)).code, 'MATCH_ACTION');
+    assert.equal((await act(successor, finish)).room.match.winner, 'village');
+    assert.equal((await act(successor, finish)).room.match.forced, true);
+    assert.equal((await act(successor, { ...finish, winner: 'wolves' }, 409)).code, 'ACTION_ID');
+    const finished = (await sync(other)).match;
+    assert.equal(finished.forced, true);
+    assert.deepEqual(finished.roster.map(card => card.role), cards.map(card => card.role));
+  }, { postgres: true, persistent: true });
+
   for (const board of ['mechanical', 'classic', 'thief']) {
     roomTest(`${board} completes an account-free 12-seat deal and private acknowledgement`, async start => {
       const base = await start();
@@ -348,10 +399,14 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const replacement = { token: original.token, tab: randomUUID() };
     const recovered = await roomApi(base, code, replacement, 'resume');
     assert.equal(recovered.self.seat, index + 1);
+    assert.equal(recovered.self.revealed, true);
     assert.equal(recovered.self.acknowledged, true);
     assert.equal(recovered.self.host, index === 0);
     assert.equal((await roomApi(base, code, original, 'sync', {}, 409)).code, 'TAKEN_OVER');
     assert.deepEqual((await action(base, code, replacement, { type: 'reveal' })).assignment, cards[index].assignment);
+    const unready = await roomApi(base, code, participants[(index + 1) % participants.length], 'sync');
+    assert.equal(unready.self.revealed, true);
+    assert.equal(unready.self.acknowledged, false);
     const hostReplacement = { token: host.token, tab: randomUUID() };
     const hostView = await roomApi(base, code, hostReplacement, 'resume');
     assert.equal(hostView.self.host, true);
@@ -479,10 +534,19 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const participants = [host, ...guests];
     const assignments = await Promise.all(participants.map(async participant => {
       const { room, assignment } = await action(base, code, participant, { type: 'reveal' });
-      assert.ok(room.seats.every(seat => !Object.hasOwn(seat, 'assignment')));
-      await action(base, code, participant, { type: 'acknowledge' });
+      assert.equal(room.self.revealed, true);
+      assert.ok(room.seats.every(seat => !Object.hasOwn(seat, 'assignment') && !Object.hasOwn(seat, 'revealed')));
+      assert.ok(room.seats.every(seat => !seat.acknowledged));
       return assignment;
     }));
+    await Promise.all(guests.map(guest => action(base, code, guest, { type: 'acknowledge' })));
+    const waitingForHost = await roomApi(base, code, host, 'sync');
+    assert.equal(waitingForHost.state, 'dealt');
+    assert.equal(waitingForHost.self.revealed, true);
+    assert.equal(waitingForHost.self.acknowledged, false);
+    assert.equal((await action(base, code, host, { type: 'match-start' }, 409)).code, 'NOT_READY');
+    const { room: ready } = await action(base, code, host, { type: 'acknowledge' });
+    assert.equal(ready.canStart, true);
     assert.deepEqual(assignments.map(card => card.role).sort(), [...lineup].sort());
     await action(base, code, spectator, { type: 'reveal' }, 403);
     base = await start({ clock, matchRules });
@@ -532,6 +596,8 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(rematch.room.sheriffMode, 'none');
     assert.deepEqual(rematch.room.customRules, customRules);
     assert.equal(rematch.room.seats.length, lineup.length);
+    assert.equal(rematch.room.self.revealed, false);
+    assert.equal(rematch.room.self.acknowledged, false);
     assert.equal(rematch.room.canDeal, true);
   }, { postgres: true, persistent: true });
 
@@ -686,8 +752,26 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(duringVote.voteProgress, undefined);
     assert.equal(duringVote.actions, undefined);
     assert.ok(duringVote.history.every(event => !event.ballot));
-    for (const player of players.slice(3)) await choose(player, (await sync(player)).match, 'vote', null);
-    const published = (await sync(remaining)).match.history.find(event => event.kind === 'sheriff-vote');
+    for (const player of players.slice(3, -1)) await choose(player, (await sync(player)).match, 'vote', null);
+    const hostBallot = (await sync(host)).match;
+    const lastVoter = players.at(-1);
+    const { matchId: ballotId, window: ballotWindow } = hostBallot;
+    assert.deepEqual(hostBallot.voteProgress, { received: 9, expected: 10, pending: [12] });
+    assert.equal((await sync(lastVoter)).match.voteProgress, undefined);
+    const close = { id: randomUUID(), type: 'match-choice', matchId: ballotId, window: ballotWindow, kind: 'close-vote' };
+    assert.equal((await action(base, code, lastVoter, close, 409)).code, 'MATCH_ACTION');
+    const last = { id: randomUUID(), type: 'match-choice', matchId: ballotId, window: ballotWindow, kind: 'vote', choice: null };
+    const commands = [[host, close], [lastVoter, last]];
+    const settlements = await Promise.all(commands.map(([player, command]) => action(base, code, player, command, [200, 409])));
+    const completed = settlements.findIndex(result => result.room);
+    assert.notEqual(completed, -1);
+    assert.equal(settlements[1 - completed].code, 'MATCH_ACTION');
+    const [actor, acceptedCommand] = commands[completed];
+    const replay = await action(base, code, actor, acceptedCommand);
+    assert.equal(replay.room.match.phase, 'dawn');
+    const ballots = (await sync(remaining)).match.history.filter(event => event.kind === 'sheriff-vote');
+    assert.equal(ballots.length, 1);
+    const [published] = ballots;
     assert.deepEqual(published.ballot.groups, [{ seat: 1, count: 1, voters: [3] }]);
     assert.equal(published.ballot.abstained.length, 9);
 

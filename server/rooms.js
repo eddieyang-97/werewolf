@@ -174,7 +174,7 @@ function snapshot(room, viewer, now, matchRules) {
       return guest ? presentGuest(guest, room, now) : null;
     }),
     waiting: room.guests.filter(guest => guest.seat === null && !guest.spectator).map(guest => presentGuest(guest, room, now)),
-    self: presentGuest(viewer, room, now),
+    self: { ...presentGuest(viewer, room, now), revealed: viewer.revealed },
     spectatorCount: watching.length,
   };
   if (viewer.spectator) {
@@ -239,6 +239,14 @@ function applyAction(room, guest, command, now, matchRules) {
       assertHost(room, guest);
       approveReplacement(room, command, now);
       return;
+    case 'host-transfer': {
+      assertHost(room, guest);
+      const target = room.guests.find(item => item.id === command.target && item.id !== guest.id && item.seat !== null);
+      if (!isOnline(target, now)) roomError(409, 'HOST_TARGET', '请选择另一位在线且已入座的玩家。');
+      clearReplacementRequests(room, target.id);
+      room.hostId = target.id;
+      return;
+    }
     case 'seat': {
       assertLobby(room);
       if (!Number.isInteger(command.seat) || command.seat < 1 || command.seat > seatsIn(room)) {
@@ -293,7 +301,7 @@ function applyAction(room, guest, command, now, matchRules) {
       assertHost(room, guest);
       const { state, full, seated } = publicStatus(room, now);
       if (state !== 'ready' || !full || !seated.every(player => isOnline(player, now))) {
-        roomError(409, 'NOT_READY', '所有玩家确认身份并在线后才可开始对局。');
+        roomError(409, 'NOT_READY', '所有玩家准备就绪并在线后才可开始对局。');
       }
       startMatch(room, matchRules);
       return;
@@ -303,13 +311,16 @@ function applyAction(room, guest, command, now, matchRules) {
         roomError(409, 'MATCH_ACTION', '当前无法执行此对局操作，请刷新进度。');
       }
       return;
-    case 'match-abandon':
+    case 'match-abandon': {
       assertHost(room, guest);
-      if (!matchRules || !room.match || room.match.winner || room.match.id !== command.matchId) {
+      const { winner = 'abandoned' } = command;
+      if (!matchRules || !room.match || room.match.winner || room.match.id !== command.matchId
+        || !['abandoned', 'wolves', 'village'].includes(winner)) {
         roomError(409, 'MATCH_ACTION', '当前无法结束此对局。');
       }
-      abandonMatch(room.match);
+      abandonMatch(room.match, winner);
       return;
+    }
     default:
       roomError(400, 'ACTION', '无法识别此操作。');
   }
@@ -456,7 +467,10 @@ export function createRooms(store, clock = Date.now, matchRules) {
       if (command.type === 'match-choice') {
         signature = JSON.stringify([command.type, command.matchId, command.window, command.kind, command.choice]);
       }
-      if (command.type === 'match-abandon') signature = JSON.stringify([command.type, command.matchId]);
+      if (command.type === 'match-abandon') {
+        const { winner } = command;
+        signature = JSON.stringify(winner === undefined ? [command.type, command.matchId] : [command.type, command.matchId, winner]);
+      }
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         seesTab(guest, tab);

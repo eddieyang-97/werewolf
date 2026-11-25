@@ -2,7 +2,7 @@ import {
   boards, customBoardName, customLineupError, customRoleGroups, customRoles, customRuleOptions, defaultCustomRules,
   defaultSheriffMode, nightSchedules, presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
 } from './boards.js';
-import { choiceLabel, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
+import { choiceLabel, exileVote, matchCommand, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
@@ -47,6 +47,7 @@ let noticeTimer;
 let matchClock;
 let roomError = '';
 let showingHistory = false;
+let voteClosure;
 
 function read(key) {
   try { return localStorage.getItem(key) ?? memoryStorage.get(key); }
@@ -241,25 +242,30 @@ function joinScreen() {
   </form>`;
 }
 
-const phases = { lobby: '准备中', dealt: '确认身份中', ready: '身份确认完成', playing: '游戏中', finished: '对局结束' };
+const phases = { lobby: '准备中', dealt: '等待玩家准备', ready: '全员已准备', playing: '游戏中', finished: '对局结束' };
 
-function seatTile(guest, index) {
+function seatTile(guest, index, seatVote) {
   const seat = index + 1;
   const mine = guest?.id === lobby.self.id;
   const playable = !lobby.self.spectator && lobby.state === 'lobby' && connected && (!guest || mine);
   const canReplace = connected && lobby.self.canRequestReplacement && guest && !guest.connected && !guest.host
     && lobby.self.replacementSeat !== seat;
+  const voteTarget = guest && seatVote?.options.includes(seat);
+  const command = voteTarget ? 'confirm-vote' : canReplace ? 'confirm-replacement' : 'seat';
+  const value = voteTarget ? matchCommand(lobby.match, 'vote', seat) : canReplace ? guest.id : seat;
   const name = guest?.name ?? '空座位';
-  const label = canReplace ? `申请替补 ${name}` : mine && playable ? '点击起立' : name;
+  const label = voteTarget ? `投给 ${name}` : canReplace ? `申请替补 ${name}` : mine && playable ? '点击起立' : name;
   const out = lobby.match?.departed.includes(seat);
-  const sub = canReplace ? '离线 · 申请替补' : !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : '已坐下';
+  const unready = lobby.state === 'dealt' && guest && !guest.acknowledged;
+  const present = guest?.connected && !out && !unready;
+  const sub = canReplace ? '离线 · 申请替补' : !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : unready ? '未准备' : '已坐下';
   const image = guest?.avatar ?? (guest ? null : '/art/empty-seat.png');
   const avatar = image ? `<img class="seat-avatar" src="${escape(image)}" width="36" height="36" alt="">`
     : `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>`;
-  return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="${canReplace ? 'confirm-replacement' : 'seat'}" data-value="${canReplace ? guest.id : seat}" aria-label="${seat}号座，${escape(label)}" ${playable || canReplace ? '' : 'disabled'}>
+  return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="${command}" data-value="${escape(value)}" aria-label="${seat}号座，${escape(label)}${guest ? `，${sub}` : ''}" ${playable || canReplace || (voteTarget && connected) ? '' : 'disabled'}>
     <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}${lobby.match?.sheriff === seat ? '<span class="sheriff-label">警长</span>' : ''}</span>
     <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
-    <span class="seat-state${out ? ' eliminated' : guest?.connected ? ' present' : ''}"><span aria-hidden="true">${guest?.connected && !out ? '✓' : 'ⓘ'}</span> ${sub}</span>
+    <span class="seat-state${out ? ' eliminated' : present ? ' present' : ''}"><span aria-hidden="true">${present ? '✓' : 'ⓘ'}</span> ${sub}</span>
   </button>`;
 }
 
@@ -272,13 +278,16 @@ function roomScreen() {
       <p class="panel">座位已满，可以观战。</p>${profileForm('spectate-room', '观战', null, joinDraft)}`;
     return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>${profileForm('join-room', '加入房间', null, joinDraft)}`;
   }
-  const { self, seats, state } = lobby;
+  const { self, seats, state, match } = lobby;
+  const seatVote = exileVote(match);
   const seatedCount = seats.filter(Boolean).length;
-  const acknowledgements = seats.filter(guest => guest?.acknowledged).length;
+  const readyCount = seats.filter(guest => guest?.acknowledged).length;
+  const showReady = state === 'dealt' && self.seat !== null && !self.acknowledged;
   const boardName = boardDetails(lobby.board, lobby.lineup).name;
-  const phaseSummary = state === 'lobby' ? `${seatedCount} / ${seats.length} 已入座` : `${acknowledgements} / ${seats.length} 已确认`;
+  const phaseSummary = state === 'lobby' ? `${seatedCount} / ${seats.length} 已入座` : `${readyCount} / ${seats.length} 已准备`;
   const phaseInstruction = state === 'lobby' ? '点击空座位坐下，点击自己可站起来'
-    : state === 'ready' ? '全部身份已确认' : '请查看并确认身份';
+    : showReady ? (self.revealed ? '请点击「准备就绪」' : '查看初始身份后，点击「准备就绪」')
+      : state === 'dealt' ? '等待其他玩家准备' : '';
   const requests = lobby.replacementRequests?.length;
   const replacementStatus = self.replacementSeat
     ? `已申请替补 ${self.replacementSeat} 号座，等待房主同意。${button('撤回申请', 'replacement-cancel', { variant: 'quiet', disabled: !connected })}`
@@ -287,7 +296,7 @@ function roomScreen() {
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
       ${self.spectator ? '' : button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
-      ${self.host && (state === 'lobby' || lobby.match?.canAbandon) ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
+      ${self.host ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
     <section class="room-overview">
@@ -302,14 +311,15 @@ function roomScreen() {
     <div class="stack room-actions">
       ${button('邀请好友', 'invite')}
       ${state === 'lobby' && self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}
+      ${showReady ? button('准备就绪', 'confirm-ready', { disabled: !connected || !self.revealed }) : ''}
       ${state === 'ready' && Object.hasOwn(lobby, 'canStart') ? button('开始游戏', 'confirm-start', { disabled: !connected || !lobby.canStart }) : ''}
       ${requests ? button(`替补申请（${requests}）`, 'replacement-requests', { variant: 'secondary', disabled: !connected }) : ''}
     </div>
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
-    ${lobby.match ? matchPanel(lobby.match, button, connected) : `<div class="phase-panel">${self.spectator ? '' : `<strong>${phaseInstruction}</strong>`}<span>${phaseSummary}</span></div>`}
-    <section class="seats" aria-label="${seats.length} 个座位">${seats.map(seatTile).join('')}</section>
+    ${match ? matchPanel(match, button, connected, seatVote) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
+    <section class="seats" aria-label="${seats.length} 个座位">${seats.map((guest, index) => seatTile(guest, index, seatVote)).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
 }
@@ -335,10 +345,14 @@ function render() {
 }
 
 function showDialog(title, body, appearance = '') {
+  voteClosure = undefined;
   dialog.className = appearance;
-  const hasFooter = ['identity-dialog', 'ballot-dialog', 'settings-dialog'].includes(appearance);
+  const hasFooter = ['identity-dialog', 'ballot-dialog', 'settings-dialog', 'prompt-dialog', 'host-dialog', 'force-end-dialog'].includes(appearance);
   dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${hasFooter ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
+  if (appearance === 'prompt-dialog') dialog.setAttribute('aria-describedby', 'dialog-description');
+  else dialog.removeAttribute('aria-describedby');
   if (!dialog.open) dialog.showModal();
+  else if (appearance === 'prompt-dialog') dialog.querySelector('.target-picker select, .confirm-cancel')?.focus();
 }
 
 function showRoomSetting(key) {
@@ -355,6 +369,75 @@ function showRoomSetting(key) {
 
 function confirm(title, body, action, label, value) {
   showDialog(title, `<p>${escape(body)}</p><div class="dialog-actions">${button('取消', 'close', { variant: 'secondary' })}${button(label, action, { value })}</div>`);
+}
+
+function confirmPrompt(question, action, value, { title = '请确认', cancelLabel = '取消', acceptLabel = '确定' } = {}) {
+  showDialog(title, `<p id="dialog-description">${escape(question)}</p>
+    <div class="dialog-actions">${button(cancelLabel, 'close', { variant: 'confirm-cancel' })}${button(acceptLabel, action, { variant: 'confirm-accept', value })}</div>`, 'prompt-dialog');
+}
+
+function pendingVoteClosure({ matchId, window }) {
+  const match = lobby?.match;
+  if (!match || match.matchId !== matchId || match.window !== window || !match.actions?.some(entry => entry.kind === 'close-vote')) return;
+  const pending = match.voteProgress?.pending;
+  if (pending?.length) return pending;
+}
+
+function voteClosureMessage(pending, final) {
+  const outstanding = `${pending.join('、')} 号尚未投票。`;
+  return final ? `${outstanding}结束时仍未投票的玩家按弃票计。` : outstanding;
+}
+
+function showVoteClosure(command, final = false) {
+  const ballot = JSON.parse(command);
+  const pending = pendingVoteClosure(ballot);
+  if (!pending) return dialog.close();
+  confirmPrompt(voteClosureMessage(pending, final), final ? 'match-send' : 'confirm-close-vote', command, final
+    ? { title: '确认提前结束投票？', acceptLabel: '确认结束' }
+    : { title: '还有玩家未投票', cancelLabel: '再等一会', acceptLabel: '提前结束' });
+  const description = dialog.querySelector('#dialog-description');
+  description.setAttribute('aria-live', 'polite');
+  voteClosure = { ballot, final, description };
+}
+
+function refreshVoteClosure() {
+  if (!dialog.open || !voteClosure) return;
+  const { ballot, final, description } = voteClosure;
+  const pending = pendingVoteClosure(ballot);
+  if (!pending) return dialog.close();
+  const text = voteClosureMessage(pending, final);
+  if (description.textContent !== text) description.textContent = text;
+}
+
+function showTargetPicker(title, notice, form, targets, command) {
+  const options = targets.map(({ value, label }) => `<option value="${escape(value)}">${escape(label)}</option>`).join('');
+  showDialog(title, `<form class="target-picker" data-form="${form}">
+    ${command ? `<input type="hidden" name="command" value="${escape(command)}">` : ''}
+    <p id="dialog-description">${escape(notice)}</p>
+    <label class="target-picker-field">选择目标玩家<select name="choice" required>
+      <option value="" selected disabled>请选择座位</option>${options}</select></label>
+    <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}<button type="submit" class="button confirm-accept">确定</button></div>
+  </form>`, 'prompt-dialog');
+}
+
+function showHostDialog(title, content) {
+  showDialog(title, `<div class="host-dialog-content">${content}</div>
+    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'host-dialog');
+}
+
+function hostMatchButton(match, kind) {
+  return button(matchLabel({ kind }), 'match-control', {
+    variant: 'secondary', value: matchCommand(match, kind), disabled: !match.hostActions?.some(entry => entry.kind === kind),
+  });
+}
+
+const forceEndOptions = { wolves: '狼人阵营获胜', village: '好人阵营获胜', abandoned: '不判胜结束' };
+
+function showForceEnd(matchId) {
+  if (lobby.match?.canAbandon !== matchId) return;
+  showDialog('强制结束', `<div class="force-end-options">${Object.entries(forceEndOptions).map(([winner, label]) =>
+    button(label, 'confirm-force-end', { variant: 'quiet', value: JSON.stringify({ matchId, winner }) })).join('')}</div>
+    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'force-end-dialog');
 }
 
 async function request(path, body, token, options = {}) {
@@ -390,6 +473,9 @@ function applyLobby(next) {
     dialog.close();
     message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
   }
+  if (lobby && next.self.host !== lobby.self.host) {
+    message(next.self.host ? '你已成为房主。' : '房主权限已转交。');
+  }
   lobby = next;
   connected = true;
   takenOver = false;
@@ -398,7 +484,10 @@ function applyLobby(next) {
   write(credentialKey(code), credential);
   write(pendingJoinKey(code), null);
   write(recentKey, code);
-  if (changed) render();
+  if (changed) {
+    render();
+    refreshVoteClosure();
+  }
 }
 
 function handleRoomError(error) {
@@ -584,6 +673,7 @@ async function submit(event) {
     if (key === 'victoryMode') root.querySelector('.custom-preview').innerHTML = customPreview();
     return dialog.close();
   }
+  if (form.dataset.form === 'host-transfer') return action('host-transfer', { target: data.get('choice') });
   if (form.dataset.form === 'match-choice') {
     const command = JSON.parse(data.get('command'));
     const choices = data.getAll('choice').map(value => JSON.parse(value));
@@ -678,7 +768,7 @@ async function action(type, details = {}) {
       const { role, extra } = result.assignment;
       showDialog('我的身份', `<div class="identity"><div class="identity-detail" tabindex="0" role="region" aria-labelledby="identity-role">${roleMark(role)}<h3 id="identity-role">${roles[role].name}</h3>${roleDescription(role)}
         ${extra ? `<h4 class="meta-label">你的额外牌</h4><div class="extra-cards">${extra.map(roleTile).join('')}</div>` : ''}</div>
-        ${button('我知道了', lobby.self.acknowledged ? 'close' : 'acknowledge', { variant: 'identity-accept' })}</div>`, 'identity-dialog');
+        ${button('我知道了', 'close', { variant: 'identity-accept' })}</div>`, 'identity-dialog');
     } else dialog.close();
   } catch (error) {
     if (period !== epoch) return;
@@ -701,11 +791,21 @@ function inviteUrl() {
 }
 
 function openMatchControl(command) {
-  const { actions, window, matchId, self } = lobby.match;
+  const { actions = [], hostActions = [], window, matchId, self } = lobby.match ?? {};
   const requested = JSON.parse(command);
   if (window !== requested.window || matchId !== requested.matchId) return;
+  const hostControl = hostActions.find(entry => entry.kind === requested.kind);
+  if (hostControl) {
+    const notice = {
+      'host-eliminate': '所选玩家立即出局并判定胜负，无遗言及死亡技能。若对局继续且该玩家持有警徽，警徽将被销毁。',
+      'host-transfer-badge': '所选玩家将接任警长并获得警徽权限。',
+    }[hostControl.kind];
+    const targets = hostControl.options.map(seat => ({ value: seat, label: choiceLabel(seat, hostControl, lobby.seats) }));
+    return showTargetPicker(matchLabel(hostControl), notice, 'match-choice', targets, command);
+  }
   const control = actions.find(entry => entry.kind === requested.kind);
   if (!control) return;
+  if (control.kind === 'close-vote') return showVoteClosure(command);
   const label = matchLabel(control);
   if (control.options) {
     const type = control.multiple ? 'checkbox' : 'radio';
@@ -723,7 +823,7 @@ function openMatchControl(command) {
   }
   const warnings = {
     'self-destruct': '自爆后你将出局。', 'publish-night': '向所有玩家公布昨夜信息？',
-    'close-vote': '结束当前投票？', rematch: '返回准备阶段，在相同房间重新发牌？',
+    rematch: '返回准备阶段，在相同房间重新发牌？',
   };
   if (warnings[control.kind]) return confirm(label, warnings[control.kind], 'match-send', '确认', command);
   return action('match-choice', JSON.parse(command));
@@ -745,7 +845,7 @@ function showHelp(tabName = 'basic') {
     : boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : '';
   const pages = {
     basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
-    flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看并确认自己的身份。</li><li>房主开始游戏，仅轮到的玩家收到私密夜间操作。</li><li>进行${election}公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${firstNightNote}`,
+    flow: `<ol class="help-steps"><li>房主选择板子并邀请好友入座。</li><li>发放身份后，每位玩家查看自己的身份，回到房间点击「准备就绪」并确认。</li><li>所有玩家准备就绪并在线后，房主可以开始游戏。仅轮到的玩家收到私密夜间操作。</li><li>进行${election}公布死讯、发言和放逐投票，直到对局结束。</li></ol><p>${order}</p>${firstNightNote}`,
     faq: '<p>掉线后重新打开邀请链接或点「回到最近一局」。使用同一个浏览器可恢复座位、身份和操作进度。</p><p>若另一个页面正在使用本座位，可点「在此页继续」。</p>',
   };
   if (tabName === 'roles') {
@@ -887,9 +987,18 @@ async function click(event) {
     case 'confirm-deal':
       return confirm('发放身份', '发放后座位锁定，每位玩家只可查看自己的身份。', 'deal', '确认发放');
     case 'deal': return action('deal');
-    case 'confirm-start': return confirm('开始游戏', '进入第 1 晚？', 'start-match', '开始游戏');
+    case 'confirm-start': return confirmPrompt('开始游戏？', 'start-match');
     case 'start-match': return action('match-start');
     case 'match-control': return openMatchControl(value);
+    case 'confirm-close-vote': return showVoteClosure(value, true);
+    case 'confirm-vote': {
+      const match = lobby.match;
+      const ballot = exileVote(match);
+      const { matchId, window, choice } = JSON.parse(value);
+      if (!ballot?.options.includes(choice) || matchId !== match.matchId || window !== match.window) return;
+      const question = choice === null ? '确认弃票？' : `投给 ${choiceLabel(choice, ballot, lobby.seats)}？`;
+      return confirmPrompt(question, 'match-send', value);
+    }
     case 'match-send': return action('match-choice', JSON.parse(value));
     case 'match-history':
       showingHistory = true;
@@ -902,17 +1011,41 @@ async function click(event) {
       return showDialog(`第${event.round}天${type}${runoff}投票详情`, voteDetail(event, button), 'ballot-dialog');
     }
     case 'reveal': return action('reveal');
+    case 'confirm-ready': return confirmPrompt('已准备就绪？', 'acknowledge');
     case 'acknowledge': return action('acknowledge');
     case 'manage': {
-      if (lobby.match?.canAbandon) {
-        return showDialog('房主操作', button('结束本局', 'confirm-abandon', { variant: 'secondary', value: lobby.match.canAbandon }));
+      if (!lobby.self.host) return;
+      const { match } = lobby;
+      const canTransferHost = lobby.seats.some(guest => guest && !guest.host && guest.connected);
+      const controls = [button('转交房主', 'host-targets', { variant: 'secondary', disabled: !canTransferHost })];
+      if (match?.canAbandon) {
+        controls.push(hostMatchButton(match, 'host-eliminate'),
+          button('强制结束', 'force-end', { variant: 'secondary', value: match.canAbandon }),
+          hostMatchButton(match, 'host-transfer-badge'));
       }
-      const guests = [...lobby.seats.filter(Boolean), ...lobby.waiting].filter(guest => !guest.host);
-      const list = guests.map(guest => `<li><span>${escape(guest.name)}${guest.seat ? ` · ${guest.seat}号` : ' · 未入座'}</span>${button('移除', 'confirm-remove', { variant: 'secondary', value: guest.id })}</li>`).join('');
-      return showDialog('房主操作', list ? `<ul class="guest-list">${list}</ul>` : '<p>目前没有其他玩家。</p>');
+      let content = `<div class="host-dialog-controls">${controls.join('')}</div>`;
+      if (lobby.state === 'lobby') {
+        const guests = [...lobby.seats.filter(Boolean), ...lobby.waiting].filter(guest => !guest.host);
+        const list = guests.map(guest => `<li><span>${escape(guest.name)}${guest.seat ? ` · ${guest.seat}号` : ' · 未入座'}</span>${button('移除', 'confirm-remove', { variant: 'secondary', value: guest.id })}</li>`).join('');
+        content += list ? `<ul class="guest-list">${list}</ul>` : '<p>目前没有其他玩家。</p>';
+      }
+      return showHostDialog('房主操作', content);
     }
-    case 'confirm-abandon': return confirm('结束本局', '结束此局后，所有玩家可回到准备阶段重新发牌。', 'abandon-match', '确认结束', value);
-    case 'abandon-match': return action('match-abandon', { matchId: value });
+    case 'host-targets': {
+      if (!lobby.self.host) return;
+      const targets = lobby.seats.filter(guest => guest && !guest.host && guest.connected)
+        .map(({ id, seat, name }) => ({ value: id, label: `${seat}号 · ${name}` }));
+      if (!targets.length) return showHostDialog('转交房主', '<p>目前没有可接任的玩家。</p>');
+      return showTargetPicker('转交房主', '所选玩家将接任房主。', 'host-transfer', targets);
+    }
+    case 'force-end': return showForceEnd(value);
+    case 'confirm-force-end': {
+      const { winner, matchId } = JSON.parse(value);
+      if (!Object.hasOwn(forceEndOptions, winner) || lobby.match?.canAbandon !== matchId) return;
+      const question = winner === 'abandoned' ? '不判胜，结束本局？' : `结束本局并判定${forceEndOptions[winner]}？`;
+      return confirmPrompt(question, 'abandon-match', value);
+    }
+    case 'abandon-match': return action('match-abandon', JSON.parse(value));
     case 'confirm-remove': {
       const guest = [...lobby.seats.filter(Boolean), ...lobby.waiting].find(item => item.id === value);
       return guest ? confirm('移除玩家', `将 ${guest.name} 移出房间？`, 'remove', '确认移除', value) : dialog.close();
@@ -947,7 +1080,11 @@ dialog.addEventListener('input', event => {
   }
 });
 document.addEventListener('click', click);
-dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); });
+dialog.addEventListener('close', () => {
+  if (dialog.open) return;
+  voteClosure = undefined;
+  dialog.replaceChildren();
+});
 window.addEventListener('popstate', () => go(location.pathname, true));
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
