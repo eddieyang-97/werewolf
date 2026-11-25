@@ -45,7 +45,11 @@ export function advanceDeathFlow(match) {
   else if (flow.resumePhase === 'discussion' && playerAt(match, match.day.order[match.day.speakerIndex]).death) {
     nextDiscussionSpeaker(match);
   } else if (flow.resumePhase) {
-    changePhase(match, flow.resumePhase === 'nomination' && match.sheriff === null ? 'exile-open' : flow.resumePhase);
+    changePhase(match, flow.resumePhase === 'nomination' && match.sheriff === null ? 'exile-locked' : flow.resumePhase);
+  } else if (flow.then === 'end-duel-day') {
+    const pending = concludeDelayedDeaths(match, livingPlayers(match).filter(player => player.delayedDeath));
+    for (const death of pending) addHistory(match, 'day', 'departed', { seat: death.seat });
+    processDeaths(match, pending, 'night');
   } else changePhase(match, 'next-night');
 }
 
@@ -70,17 +74,18 @@ export function resolveDuel(match, knight, target) {
   const deaths = formalDeaths(match, [{ seat, cause: won ? 'duel' : 'duel-failed', time: 'day' }]);
   revealDeaths(match, deaths);
   addHistory(match, 'day', 'duel', { seat: knight.seat, target, won });
-  if (match.winner) return;
   if (won) {
-    const pending = concludeDelayedDeaths(match, livingPlayers(match).filter(player => player.delayedDeath));
-    for (const delayed of pending) addHistory(match, 'day', 'departed', { seat: delayed.seat });
-    processDeaths(match, [...deaths, ...pending], 'night');
-  } else {
-    if (match.day.nominations) {
-      match.day.nominations = match.day.nominations.filter(nomination => nomination !== knight.seat);
-    }
-    processDeaths(match, deaths, 'night', phase);
+    processDeaths(match, deaths, 'end-duel-day');
+    return;
   }
+  if (match.winner) return;
+  const sheriffDied = match.sheriff === knight.seat;
+  if (sheriffDied) delete match.day.nominations;
+  else if (match.day.nominations) {
+    match.day.nominations = match.day.nominations.filter(nomination => nomination !== knight.seat);
+  }
+  const resumePhase = sheriffDied && phase === 'exile-locked' ? 'nomination' : phase;
+  processDeaths(match, deaths, 'night', resumePhase);
 }
 
 export function resolveGun(match, target) {
