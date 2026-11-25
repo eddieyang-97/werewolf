@@ -1,5 +1,5 @@
 import { addHistory, changePhase, currentRole, isPackWolf, livingPlayers, playerAt, revealDeaths } from './match-state.js';
-import { knifeOwners, mediumResult, nightDeaths, settleNightDeaths } from './night-resolution.js';
+import { knifeOwners, mediumResult, nightDeaths, nightTarget, settleNightDeaths } from './night-resolution.js';
 import { nightSchedules } from '../public/boards.js';
 
 export const mechanicalNightOrder = nightSchedules.mechanical;
@@ -45,13 +45,22 @@ function stepFor(match, position) {
   }
   const player = players.find(entry => currentRole(entry) === position);
   if (!player) return null;
-  return { kind: { hunter: 'gun-check', poisoner: 'poison' }[position] ?? position, seats: [player.seat] };
+  return { kind: { hunter: 'gun-check', poisoner: 'poison', magician: 'swap', wolfBeauty: 'charm' }[position] ?? position,
+    seats: [player.seat] };
 }
 
 export function fixedChoices(match, player, kind) {
   const { alive, wolves } = match.night;
   switch (kind) {
     case 'thief-start': return ['power', 'common'];
+    case 'swap': {
+      const targets = alive.filter(seat => !player.swappedSeats?.includes(seat));
+      return targets.length >= 2 ? targets : [];
+    }
+    case 'charm': {
+      const previous = player.previousCharm?.round === match.round - 1 ? player.previousCharm.seat : null;
+      return alive.filter(seat => seat !== player.seat && seat !== previous);
+    }
     case 'guard':
     case 'mechanical-guard': return [null, ...alive.filter(seat => seat !== player.previousGuard)];
     case 'dreamer': return [null, ...alive.filter(seat => seat !== player.seat)];
@@ -103,6 +112,16 @@ export function applyNightEffect(match, player, kind, choice) {
     case 'thief-start':
       player.form = choice;
       break;
+    case 'swap':
+      if (choice.length) {
+        night.swap = choice;
+        player.swappedSeats = [...(player.swappedSeats ?? []), ...choice];
+      }
+      break;
+    case 'charm':
+      player.previousCharm = { seat: choice, round: match.round };
+      night.charm = { source: player.seat, target: choice };
+      break;
     case 'guard':
     case 'mechanical-guard':
       player.previousGuard = choice;
@@ -111,8 +130,9 @@ export function applyNightEffect(match, player, kind, choice) {
       break;
     case 'dreamer':
       if (choice !== null) {
-        night.dreams.push({ source: player.seat, target: choice, repeat: choice === player.previousDream });
-        player.previousDream = choice;
+        const target = nightTarget(night, choice);
+        night.dreams.push({ source: player.seat, target: choice, repeat: target === player.previousDream });
+        player.previousDream = target;
       }
       break;
     case 'learn':
@@ -120,7 +140,7 @@ export function applyNightEffect(match, player, kind, choice) {
       break;
     case 'medium':
       if (choice !== null) {
-        player.privateEvents.push({ kind, round: match.round, seat: choice, ...mediumResult(playerAt(match, choice)) });
+        player.privateEvents.push({ kind, round: match.round, seat: choice, ...mediumResult(playerAt(match, nightTarget(night, choice))) });
       }
       break;
     case 'extra-knife':
