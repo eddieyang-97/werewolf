@@ -1,4 +1,5 @@
 import { isPackWolf, playerAt } from './match-state.js';
+import { pendingVoters } from './match-vote.js';
 import { nightSchedules } from '../public/boards.js';
 
 function witchChoices(match, player) {
@@ -48,5 +49,5 @@ export const matchRules = {
   },
   ballotTargets: (ballot, seat) => ballot.targets.filter(target => target !== seat),
   abstention: true,
-  earlyClose: () => false,
+  earlyClose: (_match, ballot) => pendingVoters(ballot).length > 0,
 };

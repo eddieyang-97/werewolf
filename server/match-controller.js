@@ -1,12 +1,14 @@
 import {
   advanceDeathFlow, advanceDiscussion, advanceRunoff, canSelfDestruct, closeExileVote, openExileVote,
-  openNomination, publishNight, resolveBadge, resolveGun, selfDestruct, setSpeechDirection, settleNomination,
+  markDeparture, openNomination, publishNight, resolveBadge, resolveGun, selfDestruct, setSpeechDirection,
+  settleNomination, transferBadge,
 } from './match-day.js';
 import {
   advanceElectionSpeech, closeElectionVote, collectCandidacies, electionDue, electionOpen, startElection, withdrawCandidacy,
 } from './match-election.js';
 import { createMatch, finishMatch, livingPlayers, playerAt } from './match-state.js';
 import { matchView, publicSpeaker } from './match-view.js';
+import { pendingVoters } from './match-vote.js';
 import { advanceNight, applyNightEffect, beginNight, fixedChoices, mechanicalNightOrder } from './night-actions.js';
 
 function nightOrder(board, rules) {
@@ -19,8 +21,9 @@ export function startMatch(room, rules) {
   beginNight(room.match, nightOrder(room.board, rules), rules);
 }
 
-export function abandonMatch(match) {
-  finishMatch(match, 'abandoned');
+export function abandonMatch(match, winner = 'abandoned') {
+  if (winner !== 'abandoned') match.forced = true;
+  finishMatch(match, winner);
 }
 
 function getBallot(match) {
@@ -28,6 +31,16 @@ function getBallot(match) {
   if (isSheriff) return { ...match.election.ballot, targets: match.election.candidates, election: true };
   if (['exile-vote', 'exile-runoff-vote'].includes(match.phase)) return match.day.ballot;
   return null;
+}
+
+function recoveryControls(match) {
+  if (match.winner || !['speech-direction', 'exile-open'].includes(match.phase)) return [];
+  const targets = livingPlayers(match).map(player => player.seat);
+  const actions = [{ kind: 'host-eliminate', options: targets }];
+  if (targets.includes(match.sheriff) && targets.length > 1) {
+    actions.push({ kind: 'host-transfer-badge', options: targets.filter(target => target !== match.sheriff) });
+  }
+  return actions;
 }
 
 function controls(match, player, host, rules) {
@@ -108,12 +121,17 @@ function controls(match, player, host, rules) {
 
 export function controllerView(match, seat, host, rules) {
   const view = matchView(match, seat);
-  const actions = controls(match, playerAt(match, seat), host, rules);
+  const player = playerAt(match, seat);
+  const actions = controls(match, player, host, rules);
+  const hostActions = host && player ? recoveryControls(match) : [];
   const ballot = getBallot(match);
   if (host && ballot) {
-    view.voteProgress = { received: Object.keys(ballot.votes).length, expected: ballot.voters.length };
+    const pending = pendingVoters(ballot);
+    view.voteProgress = { received: ballot.voters.length - pending.length, expected: ballot.voters.length, pending };
   }
-  if (actions.length) Object.assign(view, { actions, window: match.window, matchId: match.id });
+  if (actions.length) view.actions = actions;
+  if (hostActions.length) view.hostActions = hostActions;
+  if (actions.length || hostActions.length) Object.assign(view, { window: match.window, matchId: match.id });
   return view;
 }
 
@@ -145,7 +163,12 @@ function applyChoice(match, player, kind, choice, rules, now) {
       if (ballot.voters.every(seat => Object.hasOwn(ballot.votes, seat))) closeVote(match, ballot);
       break;
     }
-    case 'close-vote': closeVote(match, getBallot(match)); break;
+    case 'close-vote': {
+      const ballot = getBallot(match);
+      for (const seat of pendingVoters(ballot)) ballot.votes[seat] = null;
+      closeVote(match, ballot);
+      break;
+    }
     case 'open-election': startElection(match); break;
     case 'candidacy':
       match.election.signups[player.seat] = choice;
@@ -161,6 +184,8 @@ function applyChoice(match, player, kind, choice, rules, now) {
       break;
     case 'shoot': resolveGun(match, choice); break;
     case 'badge': resolveBadge(match, choice); break;
+    case 'host-eliminate': markDeparture(match, choice); break;
+    case 'host-transfer-badge': transferBadge(match, choice); break;
     case 'direction': setSpeechDirection(match, choice); break;
     case 'open-nomination': openNomination(match); break;
     case 'nominate': settleNomination(match, choice); break;
@@ -175,7 +200,9 @@ export function executeMatchChoice(room, guest, command, rules, now) {
   const { match } = room;
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
   const player = playerAt(match, guest.seat);
-  const action = controls(match, player, guest.id === room.hostId, rules).find(entry => entry.kind === command.kind);
+  const host = guest.id === room.hostId;
+  const action = controls(match, player, host, rules).find(entry => entry.kind === command.kind)
+    ?? (host && player ? recoveryControls(match).find(entry => entry.kind === command.kind) : undefined);
   if (!action || !validChoice(action, command.choice)) return false;
   if (command.kind === 'rematch') {
     delete room.match;

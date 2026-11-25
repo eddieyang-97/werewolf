@@ -1,3 +1,7 @@
+export function pendingVoters(ballot) {
+  return ballot.voters.filter(seat => !Object.hasOwn(ballot.votes, seat));
+}
+
 // Store votes as integer half-votes so the sheriff's 1.5 vote is exact.
 export function tallyVotes(ballots, weight = () => 2) {
   const scores = new Map();
