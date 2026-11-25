@@ -30,7 +30,9 @@ docker stop werewolf-test-postgres
 
 In PowerShell, set `$env:WEREWOLF_TEST_POSTGRES_URL` to the same URL before running `npm test`. The tests use this dedicated loopback URL and ignore the app's `DATABASE_URL`.
 
-The GitHub Actions **Tests** check runs both storage backends on pull requests to `main` and pushes to `main`. GitHub currently requires Pro or public visibility to enforce status checks on this repository. Wait for **Tests** to pass on the latest PR revision before merging. If branch protection becomes available, require this check on `main`.
+Run `npm run test:browser` with Google Chrome installed to test remembered profiles against a local SQLite server.
+
+The GitHub Actions **Tests** check runs both storage backends and the Chrome regression on pull requests to `main` and pushes to `main`. GitHub currently requires Pro or public visibility to enforce status checks on this repository. Wait for **Tests** to pass on the latest PR revision before merging. If branch protection becomes available, require this check on `main`.
 
 For client/API changes, smoke-test the affected browser flow. For a milestone or material deployment, verify the live revision and database readiness at `/healthz`, then exercise the relevant [acceptance criteria](REQUIREMENTS.md) on real phones with independent sessions. Record the deployment revision, observed results, and gaps. [M1 acceptance](REQUIREMENTS.md#m1-acceptance) still requires checks on iPhone Safari and Android Chrome, including invite, deal, reconnect, and deployed restart persistence. Use isolated test rooms and obtain authorization before restarting the deployed service.
 

@@ -135,6 +135,10 @@ function presentGuest(guest, room, now) {
   };
 }
 
+function ownProfile(guest) {
+  return { name: guest.name, avatar: guest.avatar?.jpeg ?? null };
+}
+
 function seatsIn(room) {
   return room.lineup?.length ?? presetSeatCount;
 }
@@ -260,6 +264,7 @@ function applyAction(room, guest, command, now, matchRules) {
     case 'avatar':
       if (command.avatar === undefined) roomError(400, 'AVATAR', '请选择照片或移除头像。');
       guest.avatar = validateAvatar(command.avatar);
+      guest.avatarActionId = command.id;
       return;
     case 'remove': {
       assertHost(room, guest);
@@ -366,7 +371,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
           room.customRules = { ...defaultCustomRules, ...customRules };
         }
         const result = await store.create(room, key, now);
-        if (result) return { code: result.code };
+        if (result) return { code: result.code, profile: ownProfile(guestFor(result, key)) };
       }
       roomError(503, 'CREATE', '暂时无法创建房间，请重试。');
     },
@@ -417,11 +422,11 @@ export function createRooms(store, clock = Date.now, matchRules) {
           seesTab(guest, tab);
         }
         refreshPresence(room, guest, now);
-        return { changed: true, value: snapshot(room, guest, now, matchRules) };
+        return { changed: true, value: { ...snapshot(room, guest, now, matchRules), profile: ownProfile(guest) } };
       });
     },
 
-    sync(code, token, tab, takeControl = false) {
+    sync(code, token, tab, { takeControl = false, includeProfile = false, pendingAvatarId } = {}) {
       validateTab(tab);
       const key = tokenKey(token);
       return withRoom(code, (room, now) => {
@@ -434,7 +439,11 @@ export function createRooms(store, clock = Date.now, matchRules) {
           refreshPresence(room, guest, now);
         }
         const timerResumed = refreshMatchTimer(room, now);
-        return { changed: presenceChanged || timerChanged || timerResumed, value: snapshot(room, guest, now, matchRules) };
+        const value = snapshot(room, guest, now, matchRules);
+        if (includeProfile || (validId(pendingAvatarId) && guest.avatarActionId === pendingAvatarId)) {
+          value.profile = ownProfile(guest);
+        }
+        return { changed: presenceChanged || timerChanged || timerResumed, value };
       });
     },
 
@@ -483,6 +492,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         refreshMatchTimer(room, now);
         const value = { room: snapshot(room, guest, now, matchRules) };
         if (command.type === 'reveal') value.assignment = guest.assignment;
+        if (command.type === 'avatar' && guest.avatarActionId === command.id) value.profile = ownProfile(guest);
         return { changed: true, value };
       });
     },
