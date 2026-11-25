@@ -4,7 +4,8 @@ import { thiefDraw } from '../public/boards.js';
 const wolves = ['wolf', 'wolf', 'wolf'];
 const villagers = ['villager', 'villager', 'villager', 'villager'];
 
-export function buildDeck(board, choose = randomInt) {
+export function buildDeck(board, choose = randomInt, lineup) {
+  if (board === 'custom') return lineup.map(role => ({ role }));
   if (board === 'classic') {
     return [...wolves, 'wolf', ...villagers.slice(1), 'mixed', 'seer', 'witch', 'hunter', 'fool']
       .map(role => ({ role }));
@@ -15,7 +16,7 @@ export function buildDeck(board, choose = randomInt) {
   }
   if (board !== 'thief') throw new TypeError('Unknown board');
   const selected = thiefDraw[choose(thiefDraw.length)];
-  const deck = [...wolves, ...villagers, 'masked', ...thiefDraw.filter(role => role !== selected)]
+  const deck = ['wolf', 'wolf', 'wolfKing', ...villagers, 'masked', ...thiefDraw.filter(role => role !== selected)]
     .map(role => ({ role }));
   return [...deck, { role: 'thief', extra: [selected, 'villager'] }];
 }

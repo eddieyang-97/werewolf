@@ -14,7 +14,8 @@ function nightOrder(board, rules) {
 }
 
 export function startMatch(room, rules) {
-  room.match = createMatch(room.board, room.guests);
+  const seated = room.guests.filter(guest => guest.seat !== null);
+  room.match = createMatch(room.board, seated, room.sheriffMode, room.customRules);
   beginNight(room.match, nightOrder(room.board, rules), rules);
 }
 
@@ -31,6 +32,7 @@ function getBallot(match) {
 
 function controls(match, player, host, rules) {
   const actions = [];
+  if (!player) return actions;
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
 
   if (canSelfDestruct(match, player)) add('self-destruct');
@@ -75,7 +77,9 @@ function controls(match, player, host, rules) {
       if (host) add('finish-speech');
       break;
     case 'gun':
-      if (match.deathFlow.current.death.seat === seat) add('shoot', [...living(), null]);
+      if (match.deathFlow.current.death.seat === seat) {
+        add('shoot', [...living(), null], player.role === 'wolfKing' ? { role: player.role } : undefined);
+      }
       break;
     case 'badge':
       if (match.deathFlow.current.death.seat === seat) add('badge', [...living(), null]);
@@ -178,6 +182,8 @@ export function executeMatchChoice(room, guest, command, rules, now) {
     room.dealt = false;
     for (const participant of room.guests) {
       delete participant.assignment;
+      delete participant.replacement;
+      delete participant.replaced;
       participant.revealed = false;
       participant.acknowledged = false;
     }

@@ -88,6 +88,28 @@ form.stack > .button { width: min(100%, 190px); justify-self: center; margin-top
 .board-name { color: var(--green-text); text-align: center; }
 .setup-actions { margin-top: clamp(25px, 8vw, 45px); }
 .setup-actions .button { width: 100%; }
+.custom-search { border: 0; border-radius: 24px; background: #f3f3f3; padding-inline: 16px; }
+.custom-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 6px; border-bottom: 1px solid var(--line); }
+.custom-tabs button { min-height: 44px; border: 0; border-bottom: 2px solid transparent; padding: 4px 0; background: var(--page); color: var(--green-text); font-size: .88rem; font-weight: 650; }
+.custom-tabs button[aria-pressed="true"] { border-bottom-color: var(--accent); }
+.custom-role-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 16px 0; }
+.role-choice { display: flex; min-width: 0; border-radius: 24px; background: #eee; }
+.role-choice.selected { background: var(--accent); color: #092d19; }
+.role-choice button { min-width: 0; min-height: 44px; border: 0; padding: 0 3px; border-radius: inherit; background: transparent; color: inherit; font-size: .85rem; }
+.role-choice .role-pick { flex: 1; }
+.role-choice .role-decrease { flex: 0 0 32px; border-radius: 0 24px 24px 0; box-shadow: inset 1px 0 #0002; font-size: 1.1rem; }
+.role-choice button:disabled { color: #686868; }
+.role-choice.selected button:disabled { color: inherit; }
+.custom-setting { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 13px 0; }
+.custom-setting + .custom-setting { border-top: 1px solid var(--line); }
+.setting-value { color: var(--muted); }
+.custom-setting-button { width: 100%; min-height: 48px; border: 0; color: var(--text); background: transparent; }
+.custom-setting-button .setting-value { display: flex; align-items: center; gap: 10px; color: var(--green-text); }
+.config-rules { margin: 14px 0 0; }
+.config-rules dd { margin: 0; }
+.custom-preview { border-top: 1px solid var(--line); padding-top: 14px; }
+.custom-preview .setup-actions { margin-top: 18px; }
+.custom-empty, .custom-hint { color: var(--muted); text-align: center; font-size: .84rem; padding-block: 10px; }
 
 .room-tools { display: flex; justify-content: space-between; gap: 5px; margin: 3px 0 5px; }
 .room-tools .button { padding-inline: 0; font-size: .84rem; }
@@ -121,6 +143,7 @@ img.seat-avatar { background: #f3f3f3; object-fit: cover; }
 .seat-state { width: min(100%, 112px); display: grid; grid-auto-flow: column; justify-content: center; align-items: center; gap: 3px; min-height: 30px; padding: 3px; color: #777; background: var(--page); box-shadow: 0 5px 10px #0003; font-size: .78rem; }
 .seat-state.present { color: var(--green-text); }
 .seat-state.eliminated { color: #b92525; }
+.seat[data-action="confirm-replacement"] .seat-state { color: var(--green-text); }
 .waiting { color: var(--muted); font-size: .8rem; margin-top: 9px; overflow-wrap: anywhere; }
 .connection { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; color: var(--green-text); gap: 6px; margin-bottom: 9px; }
 .panel + .button { margin-top: 14px; }
@@ -152,6 +175,13 @@ dialog::backdrop { background: #0008; }
 dialog label + input { margin-top: 6px; }
 .identity-dialog { padding: 26px 0 0; }
 .identity-dialog .dialog-title { min-height: 31px; margin-bottom: 12px; }
+.settings-dialog { position: fixed; inset: auto 0 0; width: min(100%, 590px); max-width: 100%; margin: 0 auto; padding: 18px 20px max(24px, env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; }
+.settings-options { min-width: 0; margin: 0; padding: 0; border: 0; }
+.settings-option { display: flex; align-items: center; gap: 12px; min-height: 52px; padding-inline: 10px; color: var(--text); font-size: .96rem; cursor: pointer; }
+.settings-option + .settings-option { border-top: 1px solid var(--line); }
+.settings-option:has(:checked) { color: var(--green-text); font-weight: 650; }
+.settings-option input { width: 17px; min-height: 17px; margin: 0; padding: 0; accent-color: var(--green-text); }
+.settings-dialog .dialog-actions { gap: 12px; margin-top: 24px; }
 .ballot-dialog { padding: 26px 0 0; text-align: center; }
 .ballot-dialog .dialog-title { min-height: 31px; margin-bottom: 20px; }
 .ballot-detail { margin: 0 22px 21px; border: 1px solid #ccc; padding: 8px; color: var(--muted); }

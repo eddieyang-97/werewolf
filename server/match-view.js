@@ -1,6 +1,6 @@
 import { canSelfDestruct } from './match-day.js';
 import { electionOpen } from './match-election.js';
-import { playerAt, roster } from './match-state.js';
+import { isPackWolf, playerAt, roster } from './match-state.js';
 import { fixedChoices, gunReport } from './night-actions.js';
 
 export function publicSpeaker(match) {
@@ -15,10 +15,13 @@ export function publicSpeaker(match) {
 }
 
 function privateNight(match, player) {
-  if (match.phase !== 'night') return {};
+  const inNight = match.phase === 'night';
+  const recoveringRecognition = match.round === 1 && !match.winner
+    && match.customRules?.firstNightKnife === 'disabled';
+  if (!inNight && !recoveringRecognition) return {};
   const { step, alive } = match.night;
   const result = {};
-  if (step.seats.includes(player.seat)) {
+  if (inNight && step.seats.includes(player.seat)) {
     const options = fixedChoices(match, player, step.kind);
     if (options) {
       result.nightAction = { kind: step.kind, window: match.window, options };
@@ -26,8 +29,8 @@ function privateNight(match, player) {
     }
     if (step.kind === 'witch' && !player.used.antidote) result.wolfTarget = match.night.knife ?? null;
   }
-  if (player.role === 'wolf' && (alive.includes(player.seat) || player.canDiscussNextNight === match.round)) {
-    result.teammates = match.players.filter(other => other.role === 'wolf' && other.seat !== player.seat
+  if (isPackWolf(player) && (alive.includes(player.seat) || player.canDiscussNextNight === match.round)) {
+    result.teammates = match.players.filter(other => isPackWolf(other) && other.seat !== player.seat
       && (alive.includes(other.seat) || other.canDiscussNextNight === match.round))
       .map(other => other.seat);
   }
@@ -45,15 +48,17 @@ export function matchView(match, seat) {
     timer: match.timer,
     departed: match.players.filter(person => person.announced).map(person => person.seat),
     history: match.history,
-    self: {
+  };
+  if (player) {
+    result.self = {
       inspections: player.privateEvents,
       copied: player.copy?.role,
       disguise: player.form,
       model: player.model,
       canSelfDestruct: canSelfDestruct(match, player),
       ...privateNight(match, player),
-    },
-  };
+    };
+  }
   if (electionOpen(match) && match.phase !== 'sheriff-signup') result.candidates = match.election.candidates;
   if (match.winner) {
     result.winner = match.winner;

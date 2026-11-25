@@ -81,7 +81,7 @@ test('night effects arbitrate milk death, poison reflection, dream protection an
 });
 
 test('Thief has no first-night normal knife and picks up the same Dreamer use across a civilian night', () => {
-  const match = setup('thief', ['wolf', 'wolf', 'wolf', { role: 'thief', extra: ['dreamer', 'villager'] },
+  const match = setup('thief', ['wolf', 'wolf', 'wolfKing', { role: 'thief', extra: ['dreamer', 'villager'] },
     'masked', 'poisoner', 'medium', 'hunter', ...defaults.slice(8)]);
   beginNight(match, ['thief-start']);
   assert.deepEqual(match.night.wolves, []);
@@ -106,6 +106,19 @@ test('simultaneous final wolf and final power death yields an immediate wolf vic
   settleNightDeaths(match);
   assert.equal(match.winner, 'wolves');
   assert.equal(match.phase, 'finished');
+});
+
+test('town elimination gives wolf victory precedence only if all good seats also leave', () => {
+  for (const lastGoodDies of [false, true]) {
+    const match = setup('custom', ['wolf', 'witch', 'villager']);
+    match.customRules = { victoryMode: 'town' };
+    match.round = 2;
+    formalDeaths(match, [{ seat: 3, cause: 'exile', time: 'day' }]);
+    match.night = { knife: lastGoodDies ? 2 : null, poisons: [{ source: 2, target: 1 }] };
+    settleNightDeaths(match);
+    assert.equal(match.winner, lastGoodDies ? 'wolves' : 'village');
+    assert.equal(match.phase, 'finished');
+  }
 });
 
 test('Mixed Blood follows its model while still counting towards the civilian edge', () => {
@@ -144,6 +157,7 @@ test('sheriff PK reverses the original order and differentiates first and runoff
 
 test('sheriff competition can be postponed only once', () => {
   const match = setup();
+  delete match.sheriffMode; // Matches saved before the room setting still use the default.
   dawn(match);
   startElection(match);
   const election = match.election;
@@ -158,6 +172,25 @@ test('sheriff competition can be postponed only once', () => {
   interruptElection(match, 2);
   assert.equal(electionDue(match), false);
   assert.equal(match.sheriff, null);
+});
+
+test('single self-destruct removes the badge even when one runoff candidate remains', () => {
+  const match = setup();
+  match.sheriffMode = 'single';
+  dawn(match);
+  startElection(match);
+  match.election.signups = Object.fromEntries(match.players.map(({ seat }) => [seat, seat === 1 || seat === 5]));
+  collectCandidacies(match);
+  advanceElectionSpeech(match);
+  advanceElectionSpeech(match);
+  match.election.ballot.votes = { 6: 1, 7: 5 };
+  closeElectionVote(match);
+  assert.equal(match.phase, 'sheriff-runoff-speech');
+  selfDestruct(match, playerAt(match, 1));
+  assert.equal(match.sheriff, null);
+  assert.equal(match.election.status, 'completed');
+  assert.equal(match.phase, 'next-night');
+  assert.equal(match.history.find(event => event.kind === 'sheriff').seat, null);
 });
 
 test('exile vote tie enters reverse-order PK and a second tie leaves everyone in', () => {
@@ -204,7 +237,7 @@ test('N1 Hunter last words and shot happen before a badge transfer, with shot vi
 });
 
 test('Masked remains in play until their D1 speech ends and no second set of last words is added', () => {
-  const match = setup('thief', ['wolf', 'wolf', 'wolf', { role: 'thief', extra: ['dreamer', 'villager'] },
+  const match = setup('thief', ['wolf', 'wolf', 'wolfKing', { role: 'thief', extra: ['dreamer', 'villager'] },
     'masked', 'poisoner', 'medium', 'hunter', ...defaults.slice(8)]);
   match.round = 1;
   match.night = { poisons: [{ source: 6, target: 5 }] };

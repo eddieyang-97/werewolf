@@ -1,4 +1,4 @@
-import { addHistory, changePhase, currentRole, livingPlayers, playerAt, revealDeaths } from './match-state.js';
+import { addHistory, changePhase, currentRole, isPackWolf, livingPlayers, playerAt, revealDeaths } from './match-state.js';
 import { knifeOwners, mediumResult, nightDeaths, settleNightDeaths } from './night-resolution.js';
 import { nightSchedules } from '../public/boards.js';
 
@@ -24,7 +24,12 @@ export function beginNight(match, order, rules) {
 function stepFor(match, position) {
   const { alive, wolves } = match.night;
   const players = alive.map(seat => playerAt(match, seat));
-  if (position === 'knife') return { kind: 'knife', seats: wolves };
+  if (position === 'knife') {
+    if (match.board === 'custom' && match.round === 1 && !wolves.length) {
+      return { kind: 'wolf-recognition', seats: players.filter(isPackWolf).map(player => player.seat) };
+    }
+    return { kind: 'knife', seats: wolves };
+  }
   if (position === 'thief-start') {
     const thief = players.find(player => player.role === 'thief');
     return thief && match.round === 1 ? { kind: 'thief-start', seats: [thief.seat] } : null;
@@ -55,7 +60,8 @@ export function fixedChoices(match, player, kind) {
     case 'extra-knife': return !player.used.extraKnife && wolves.includes(player.seat) ? [null, ...alive] : [];
     case 'poison':
     case 'mechanical-poison': return player.used.poison ? [] : [null, ...alive];
-    case 'gun-check': return ['confirm'];
+    case 'gun-check':
+    case 'wolf-recognition': return ['confirm'];
     default: return null;
   }
 }
@@ -131,6 +137,7 @@ export function applyNightEffect(match, player, kind, choice) {
       }
       break;
     case 'gun-check':
+    case 'wolf-recognition':
       break;
     default:
       throw new Error(`Unknown fixed night action: ${kind}`);

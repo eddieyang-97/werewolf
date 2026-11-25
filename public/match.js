@@ -28,12 +28,14 @@ const labels = {
   'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '结束投票', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
+  'wolf-recognition': '狼队相认',
   learn: '机械狼学习身份', medium: '通灵师查验', seer: '预言家查验', dreamer: '摄梦人选择目标',
   mixed: '混血儿选择榜样', 'mechanical-guard': '机械守卫', 'mechanical-poison': '机械女巫',
   poison: '毒师请选择目标', 'extra-knife': '机械狼额外刀', 'gun-check': '查看枪态',
 };
 
 export function matchLabel(control) {
+  if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }
 
@@ -56,7 +58,7 @@ export function timerText(milliseconds) {
 }
 
 export function matchPanel(match, button, connected) {
-  const { phase, round, speaker, sheriff, self, timer, actions = [], voteProgress } = match;
+  const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
   const nightInfo = self.teammates?.length ? `<p>狼队同伴：${self.teammates.join('、')}号</p>` : '';

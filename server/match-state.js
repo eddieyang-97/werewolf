@@ -1,9 +1,12 @@
 import { randomInt, randomUUID } from 'node:crypto';
+import { defaultSheriffMode } from '../public/boards.js';
 
-export function createMatch(board, guests) {
+export function createMatch(board, guests, sheriffMode = defaultSheriffMode, customRules) {
   return {
     id: randomUUID(),
     board,
+    sheriffMode,
+    ...(customRules ? { customRules: { ...customRules } } : {}),
     round: 0,
     window: null,
     sheriff: null,
@@ -22,8 +25,12 @@ export function playerAt(match, seat) {
   return match.players.find(player => player.seat === seat);
 }
 
+export function isPackWolf(player) {
+  return player.role === 'wolf' || player.role === 'wolfKing';
+}
+
 export function isWolf(player) {
-  return ['wolf', 'mechanical', 'thief'].includes(player.role);
+  return isPackWolf(player) || player.role === 'mechanical' || player.role === 'thief';
 }
 
 export function livingPlayers(match) {
@@ -49,8 +56,11 @@ export function finishMatch(match, winner) {
 export function checkVictory(match) {
   const living = livingPlayers(match);
   const good = living.filter(player => !isWolf(player));
-  if (!good.some(player => ['mixed', 'villager'].includes(player.role))
-    || !good.some(player => !['mixed', 'villager'].includes(player.role))) {
+  const wolvesWin = match.customRules?.victoryMode === 'town'
+    ? good.length === 0
+    : !good.some(player => ['mixed', 'villager'].includes(player.role))
+      || !good.some(player => !['mixed', 'villager'].includes(player.role));
+  if (wolvesWin) {
     finishMatch(match, 'wolves');
   } else if (!living.some(isWolf)) {
     finishMatch(match, 'village');
@@ -109,6 +119,7 @@ export function roster(match) {
 }
 
 export function gunAvailable(match, player, death) {
+  if (player.role === 'wolfKing') return death.cause === 'exile' && death.time === 'day';
   if (death.time === 'shot' || !['exile', 'wolfKnife', 'milk'].includes(death.cause)) return false;
   if (player.role === 'mechanical') {
     return player.copy?.role === 'hunter' && (death.time !== 'night' || player.copy.round < match.round);

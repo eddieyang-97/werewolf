@@ -65,7 +65,7 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
         respond(res, 200, { status: 'ok', boot, revision });
         return;
       }
-      const isAppPage = roomPage.test(path) || path === '/create' || path === '/join';
+      const isAppPage = roomPage.test(path) || ['/create', '/create/custom', '/join'].includes(path);
       const asset = isAppPage ? assets.get('/') : assets.get(path);
       if (req.method === 'GET' && asset) {
         const [body, type] = asset;
@@ -86,8 +86,8 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
       }
       const token = req.headers.authorization?.match(/^Bearer ([a-f0-9]+)$/)?.[1];
       if (req.method === 'POST' && path === '/api/rooms') {
-        const { board, name, tab, avatar } = await jsonBody(req, 24_576);
-        respond(res, 201, await rooms.create(board, name, token, tab, avatar));
+        const { board, name, tab, avatar, lineup, sheriffMode, customRules } = await jsonBody(req, 24_576);
+        respond(res, 201, await rooms.create(board, name, token, tab, avatar, lineup, sheriffMode, customRules));
         return;
       }
       const match = apiRoute.exec(path);
@@ -98,11 +98,11 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
           return;
         }
         if (req.method === 'POST' && operation) {
-          const { tab, name, command, avatar } = await jsonBody(req, ['join', 'action'].includes(operation) ? 24_576 : undefined);
+          const { tab, name, command, avatar, spectate, includeProfile } = await jsonBody(req, ['join', 'action'].includes(operation) ? 24_576 : undefined);
           let result;
           switch (operation) {
-            case 'join': result = await rooms.join(code, name, token, tab, avatar); break;
-            case 'resume': result = await rooms.sync(code, token, tab, true); break;
+            case 'join': result = await rooms.join(code, name, token, tab, avatar, spectate === true); break;
+            case 'resume': result = await rooms.sync(code, token, tab, true, includeProfile === true); break;
             case 'sync': result = await rooms.sync(code, token, tab); break;
             case 'disconnect': result = await rooms.disconnect(code, token, tab); break;
             case 'action': result = await rooms.action(code, token, tab, command ?? {}); break;
