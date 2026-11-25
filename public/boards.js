@@ -113,6 +113,14 @@ export const nightSchedules = {
   custom: ['magician', 'mixed', 'guard', 'dreamer', 'knife', 'wolfBeauty', 'witch', 'poisoner', 'seer', 'medium', 'hunter'],
 };
 
+export function nightCallOrder(board, round, lineup) {
+  return nightSchedules[board].filter(slot => {
+    if ((slot === 'mixed' || slot === 'thief-start') && round > 1) return false;
+    if (slot === 'knife') return board !== 'thief' || round > 1;
+    return board !== 'custom' || lineup.includes(slot);
+  });
+}
+
 const fourVillagers = ['villager', 'villager', 'villager', 'villager'];
 const threeWolves = ['wolf', 'wolf', 'wolf'];
 

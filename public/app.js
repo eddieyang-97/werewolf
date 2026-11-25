@@ -3,6 +3,7 @@ import {
   defaultSheriffMode, nightSchedules, presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
 } from './boards.js';
 import { choiceLabel, exileVote, matchCommand, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
+import { createNightVoice } from './night-voice.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
@@ -49,6 +50,36 @@ let matchClock;
 let roomError = '';
 let showingHistory = false;
 let voteClosure;
+let nightVoiceOn = false;
+let seenNightCue;
+const speechAvailable = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+const nightVoice = createNightVoice({
+  synthesis: window.speechSynthesis,
+  Utterance: window.SpeechSynthesisUtterance,
+  onError() {
+    nightVoiceOn = false;
+    message('无法播放中文语音，请按屏幕提示报幕。');
+    render();
+  },
+});
+
+function updateNightVoice() {
+  const match = lobby?.match;
+  const cue = lobby?.self.host && match?.nightCue;
+  if (!cue) {
+    seenNightCue = undefined;
+    nightVoice.stop();
+    return;
+  }
+  if (document.hidden) return;
+  if (seenNightCue && seenNightCue.matchId === cue.matchId && seenNightCue.round === cue.round && seenNightCue.role === cue.role) return;
+  seenNightCue = cue;
+  if (nightVoiceOn) nightVoice.speakRole(cue.role);
+}
+
+function interruptNightVoice() {
+  if (nightVoice.stop()) seenNightCue = undefined;
+}
 
 function read(key) {
   if (memoryStorage.has(key)) return memoryStorage.get(key);
@@ -329,7 +360,7 @@ function roomScreen() {
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
-    ${match ? matchPanel(match, button, connected, seatVote) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
+    ${match ? matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="${seats.length} 个座位">${seats.map((guest, index) => seatTile(guest, index, seatVote)).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
@@ -485,6 +516,7 @@ function applyLobby(next) {
     message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
   }
   if (lobby && next.self.host !== lobby.self.host) {
+    nightVoiceOn = false;
     message(next.self.host ? '你已成为房主。' : '房主权限已转交。');
   }
   lobby = next;
@@ -495,6 +527,7 @@ function applyLobby(next) {
   write(credentialKey(code), credential);
   write(pendingJoinKey(code), null);
   write(recentKey, code);
+  updateNightVoice();
   if (changed) {
     render();
     refreshVoteClosure();
@@ -502,7 +535,10 @@ function applyLobby(next) {
 }
 
 function handleRoomError(error) {
+  interruptNightVoice();
   if (error.code === 'TAKEN_OVER') {
+    nightVoiceOn = false;
+    seenNightCue = undefined;
     takenOver = true;
     connected = false;
     dialog.close();
@@ -544,7 +580,9 @@ async function poll() {
   const edit = readRecord(key);
   pollInFlight = period;
   try {
-    const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', { pendingAvatarId: edit.id });
+    const body = { pendingAvatarId: edit.id };
+    if (connected && !document.hidden && seenNightCue) body.seenNightCue = seenNightCue;
+    const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', body);
     if (period === epoch && version === sequence) {
       if (edit.id && (profile || edit.revision !== profileRevision())) {
         finishAvatarEdit(key, edit, profile);
@@ -564,12 +602,16 @@ async function poll() {
 }
 
 function leaveConnection() {
+  interruptNightVoice();
   if (screen === 'room' && credential && resumable && !takenOver) {
     roomRequest('disconnect', {}, { keepalive: true }).catch(() => {});
   }
 }
 
 async function go(path, replace = false) {
+  nightVoiceOn = false;
+  seenNightCue = undefined;
+  nightVoice.stop();
   if (screen === 'room' && path.replace(/\/$/, '') !== `/room/${code}`) leaveConnection();
   clearTimeout(pollTimer);
   if (location.pathname !== path) history[replace ? 'replaceState' : 'pushState']({}, '', path);
@@ -1015,8 +1057,28 @@ async function click(event) {
     case 'confirm-deal':
       return confirm('发放身份', '发放后座位锁定，每位玩家只可查看自己的身份。', 'deal', '确认发放');
     case 'deal': return action('deal');
-    case 'confirm-start': return confirmPrompt('开始游戏？', 'start-match');
-    case 'start-match': return action('match-start');
+    case 'confirm-start':
+      return showDialog('开始游戏？', `<label class="night-voice-option"><input type="checkbox" name="night-narration"${speechAvailable ? '' : ' disabled'}>
+        房主手机播报夜间睁眼提示</label><p id="dialog-description">${speechAvailable ? '开启后，请保持本页在前台，让全桌听到提示。' : '当前浏览器无法播放语音。'}</p>
+        <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}${button('开始游戏', 'start-match', { variant: 'confirm-accept' })}</div>`, 'prompt-dialog');
+    case 'start-match': {
+      if (waiting || !connected || !lobby?.canStart) return;
+      const narrate = dialog.querySelector('[name="night-narration"]').checked;
+      nightVoiceOn = narrate && nightVoice.prime();
+      return action('match-start', narrate ? { nightNarration: true } : {});
+    }
+    case 'toggle-night-voice': {
+      if (!connected || !lobby?.self.host || !lobby.match?.nightNarration || !speechAvailable) return;
+      if (nightVoiceOn) {
+        nightVoiceOn = false;
+        nightVoice.stop();
+      } else {
+        nightVoiceOn = true;
+        if (lobby.match.nightCue) nightVoice.speakRole(lobby.match.nightCue.role);
+        else nightVoice.prime();
+      }
+      return render();
+    }
     case 'match-control': return openMatchControl(value);
     case 'confirm-close-vote': return showVoteClosure(value, true);
     case 'confirm-vote': {
@@ -1116,5 +1178,8 @@ dialog.addEventListener('close', () => {
 window.addEventListener('popstate', () => go(location.pathname, true));
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) schedulePoll(0); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) interruptNightVoice();
+  else schedulePoll(0);
+});
 go(location.pathname, true);

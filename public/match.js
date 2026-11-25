@@ -69,7 +69,7 @@ export function matchCommand({ matchId, window }, kind, choice) {
   return JSON.stringify({ kind, matchId, window, choice });
 }
 
-export function matchPanel(match, button, connected, seatVote) {
+export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable } = {}) {
   const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
@@ -84,9 +84,12 @@ export function matchPanel(match, button, connected, seatVote) {
     result.claws ? (result.claws === 2 ? '双爪' : '单爪') : result.role ? roles[result.role].name : result.team === 'wolves' ? '狼人' : '好人'
   }</li>`).join('');
   const activeActions = seatVote ? actions.filter(action => action !== seatVote) : actions;
+  const cue = match.nightCue;
   return `<section class="match-panel" aria-label="当前对局">
     <h2>${finished ? '对局结果' : phase === 'night' ? `第${round}晚` : `第${round}天`}</h2>
-    ${publicInfo ? `<p>${publicInfo}</p>` : actions.length ? '' : '<p>请等待夜间操作完成</p>'}
+    ${match.nightNarration && (cue || speechAvailable) ? `<p class="night-call">${cue ? `<strong>${roles[cue.role].name}请睁眼</strong>` : ''}
+      ${speechAvailable ? button(nightVoiceOn ? '关闭夜间播报' : '开启夜间播报', 'toggle-night-voice', { variant: 'quiet', disabled: !connected }) : ''}</p>` : ''}
+    ${publicInfo ? `<p>${publicInfo}</p>` : actions.length || cue ? '' : '<p>请等待夜间操作完成</p>'}
     ${match.forced ? '<p>房主判定结果</p>' : ''}
     ${speaker ? `<p>${speaker}号正在发言</p>` : ''}${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`

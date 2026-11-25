@@ -1,10 +1,11 @@
+import { randomInt } from 'node:crypto';
 import { addHistory, changePhase, currentRole, isPackWolf, livingPlayers, playerAt, revealDeaths } from './match-state.js';
 import { knifeOwners, mediumResult, nightDeaths, nightTarget, settleNightDeaths } from './night-resolution.js';
 import { nightSchedules } from '../public/boards.js';
 
 export const mechanicalNightOrder = nightSchedules.mechanical;
 
-export function beginNight(match, order, rules) {
+export function beginNight(match, order, rules, now) {
   match.round++;
   const alive = livingPlayers(match);
   const thief = alive.find(player => player.role === 'thief');
@@ -18,7 +19,7 @@ export function beginNight(match, order, rules) {
     poisons: [],
     dreams: [],
   };
-  advanceNight(match, rules);
+  advanceNight(match, rules, now);
 }
 
 function stepFor(match, position) {
@@ -75,18 +76,46 @@ export function fixedChoices(match, player, kind) {
   }
 }
 
-export function advanceNight(match, rules) {
+function eligibleStep(match, position, rules) {
+  const step = stepFor(match, position);
+  if (!step?.seats.length) return null;
+  if (step.seats.length === 1) {
+    const player = playerAt(match, step.seats[0]);
+    const choices = fixedChoices(match, player, step.kind) ?? rules?.nightChoices(match, player, step.kind);
+    if (choices?.length === 0) return null;
+  }
+  return step;
+}
+
+// A quiet slot can last as long as one with a pending action.
+function cueDelay() {
+  let delay = randomInt(4_000);
+  while (randomInt(2) === 0) delay += 4_000;
+  return delay;
+}
+
+export function currentNightCue(match) {
+  const { order, cursor } = match.night;
+  const position = order[cursor];
+  return { matchId: match.id, round: match.round, role: { knife: 'wolf', 'thief-start': 'thief' }[position] ?? position };
+}
+
+// Only the controlling host observing this exact public cue can move the call along.
+export function progressNightCue(match, seen, rules, now) {
+  if (!match?.nightNarration || match.phase !== 'night' || seen?.matchId !== match.id) return false;
+  const cue = currentNightCue(match);
+  if (seen.round !== cue.round || seen.role !== cue.role || now < match.night.nextCueCheck) return false;
+  if (match.night.step) match.night.nextCueCheck = now + 1_000 + cueDelay();
+  else advanceNight(match, rules, now);
+  return true;
+}
+
+export function advanceNight(match, rules, now = Date.now()) {
   const { night } = match;
   while (++night.cursor < night.order.length) {
-    const step = stepFor(match, night.order[night.cursor]);
-    if (!step?.seats.length) continue;
-    const { seats, kind } = step;
-    if (seats.length === 1) {
-      const player = playerAt(match, seats[0]);
-      const choices = fixedChoices(match, player, kind) ?? rules?.nightChoices(match, player, kind);
-      if (choices?.length === 0) continue;
-    }
-    night.step = step;
+    night.step = eligibleStep(match, night.order[night.cursor], rules);
+    if (match.nightNarration) night.nextCueCheck = now + 8_000 + cueDelay();
+    else if (!night.step) continue;
     changePhase(match, 'night');
     return;
   }

@@ -189,6 +189,9 @@ dialog label + input { margin-top: 6px; }
 .prompt-dialog .confirm-accept { border-inline-start: 1px solid var(--line); color: var(--green-text); }
 .prompt-dialog .button:active, .host-dialog-close:active { background: #f3f5f3; }
 .prompt-dialog .button:focus-visible, .host-dialog-close:focus-visible { outline-offset: -4px; }
+.night-voice-option, .night-call { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.night-voice-option { min-height: 44px; padding-inline: 16px; color: var(--text); font-size: 1rem; }
+.night-voice-option input { width: 20px; height: 20px; min-height: 0; accent-color: var(--green-text); }
 .target-picker-field { display: grid; gap: 6px; margin: 16px 18px 0; text-align: start; }
 .target-picker-field select { width: 100%; min-height: 46px; padding: 8px; border: 1px solid #aaa; border-radius: 5px; color: var(--text); background: var(--page); font: inherit; font-size: 1rem; }
 .target-picker-field select:focus-visible { outline: 2px solid var(--green-text); outline-offset: 2px; }

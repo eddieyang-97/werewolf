@@ -21,7 +21,7 @@ function privateNight(match, player) {
   if (!inNight && !recoveringRecognition) return {};
   const { step, alive } = match.night;
   const result = {};
-  if (inNight && step.seats.includes(player.seat)) {
+  if (inNight && step?.seats.includes(player.seat)) {
     const options = fixedChoices(match, player, step.kind);
     if (options) {
       result.nightAction = { kind: step.kind, window: match.window, options };

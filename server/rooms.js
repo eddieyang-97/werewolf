@@ -6,6 +6,7 @@ import {
 import { buildDeck, shuffle } from './deal.js';
 import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
+import { progressNightCue } from './night-actions.js';
 
 const ONLINE_WINDOW = 15_000;
 const HEARTBEAT_INTERVAL = 4_000;
@@ -304,7 +305,7 @@ function applyAction(room, guest, command, now, matchRules) {
       if (state !== 'ready' || !full || !seated.every(player => isOnline(player, now))) {
         roomError(409, 'NOT_READY', '所有玩家准备就绪并在线后才可开始对局。');
       }
-      startMatch(room, matchRules);
+      startMatch(room, matchRules, command.nightNarration === true, now);
       return;
     }
     case 'match-choice':
@@ -426,7 +427,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
       });
     },
 
-    sync(code, token, tab, { takeControl = false, includeProfile = false, pendingAvatarId } = {}) {
+    sync(code, token, tab, { takeControl = false, includeProfile = false, pendingAvatarId, seenNightCue } = {}) {
       validateTab(tab);
       const key = tokenKey(token);
       return withRoom(code, (room, now) => {
@@ -439,11 +440,13 @@ export function createRooms(store, clock = Date.now, matchRules) {
           refreshPresence(room, guest, now);
         }
         const timerResumed = refreshMatchTimer(room, now);
+        const cueChecked = !takeControl && guest.id === room.hostId && matchRules
+          && progressNightCue(room.match, seenNightCue, matchRules, now);
         const value = snapshot(room, guest, now, matchRules);
         if (includeProfile || (validId(pendingAvatarId) && guest.avatarActionId === pendingAvatarId)) {
           value.profile = ownProfile(guest);
         }
-        return { changed: presenceChanged || timerChanged || timerResumed, value };
+        return { changed: presenceChanged || timerChanged || timerResumed || cueChecked, value };
       });
     },
 
@@ -466,6 +469,10 @@ export function createRooms(store, clock = Date.now, matchRules) {
       if (!validId(command.id)) roomError(400, 'ACTION_ID', '操作凭证无效，请重试。');
       const key = tokenKey(token);
       let signature = JSON.stringify([command.type, command.seat, command.target]);
+      if (command.type === 'match-start' && command.nightNarration !== undefined) {
+        if (typeof command.nightNarration !== 'boolean') roomError(400, 'NIGHT_NARRATION', '请选择是否开启夜间语音。');
+        if (command.nightNarration) signature = JSON.stringify([command.type, true]);
+      }
       if (command.type === 'avatar') signature = createHash('sha256').update(JSON.stringify([command.avatar])).digest('hex');
       if (command.type === 'match-choice') {
         signature = JSON.stringify([command.type, command.matchId, command.window, command.kind, command.choice]);
