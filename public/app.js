@@ -46,6 +46,7 @@ let noticeTimer;
 let matchClock;
 let roomError = '';
 let showingHistory = false;
+let voteClosure;
 
 function read(key) {
   try { return localStorage.getItem(key) ?? memoryStorage.get(key); }
@@ -323,6 +324,7 @@ function render() {
 }
 
 function showDialog(title, body, appearance = '') {
+  voteClosure = undefined;
   dialog.className = appearance;
   const hasFooter = ['identity-dialog', 'ballot-dialog', 'settings-dialog', 'prompt-dialog', 'host-dialog', 'force-end-dialog'].includes(appearance);
   dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${hasFooter ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
@@ -353,22 +355,37 @@ function confirmPrompt(question, action, value, { title = '请确认', cancelLab
     <div class="dialog-actions">${button(cancelLabel, 'close', { variant: 'confirm-cancel' })}${button(acceptLabel, action, { variant: 'confirm-accept', value })}</div>`, 'prompt-dialog');
 }
 
-function showVoteClosure(command, final = false) {
+function pendingVoteClosure({ matchId, window }) {
   const match = lobby?.match;
-  const { matchId, window } = JSON.parse(command);
-  const pending = match?.voteProgress?.pending;
-  if (!pending?.length || matchId !== match.matchId || window !== match.window || !match.actions?.some(entry => entry.kind === 'close-vote')) {
-    return dialog.close();
-  }
+  if (!match || match.matchId !== matchId || match.window !== window || !match.actions?.some(entry => entry.kind === 'close-vote')) return;
+  const pending = match.voteProgress?.pending;
+  if (pending?.length) return pending;
+}
+
+function voteClosureMessage(pending, final) {
   const outstanding = `${pending.join('、')} 号尚未投票。`;
-  if (final) {
-    return confirmPrompt(`${outstanding}结束时仍未投票的玩家按弃票计。`, 'match-send', command, {
-      title: '确认提前结束投票？', acceptLabel: '确认结束',
-    });
-  }
-  return confirmPrompt(outstanding, 'confirm-close-vote', command, {
-    title: '还有玩家未投票', cancelLabel: '再等一会', acceptLabel: '提前结束',
-  });
+  return final ? `${outstanding}结束时仍未投票的玩家按弃票计。` : outstanding;
+}
+
+function showVoteClosure(command, final = false) {
+  const ballot = JSON.parse(command);
+  const pending = pendingVoteClosure(ballot);
+  if (!pending) return dialog.close();
+  confirmPrompt(voteClosureMessage(pending, final), final ? 'match-send' : 'confirm-close-vote', command, final
+    ? { title: '确认提前结束投票？', acceptLabel: '确认结束' }
+    : { title: '还有玩家未投票', cancelLabel: '再等一会', acceptLabel: '提前结束' });
+  const description = dialog.querySelector('#dialog-description');
+  description.setAttribute('aria-live', 'polite');
+  voteClosure = { ballot, final, description };
+}
+
+function refreshVoteClosure() {
+  if (!dialog.open || !voteClosure) return;
+  const { ballot, final, description } = voteClosure;
+  const pending = pendingVoteClosure(ballot);
+  if (!pending) return dialog.close();
+  const text = voteClosureMessage(pending, final);
+  if (description.textContent !== text) description.textContent = text;
 }
 
 function showTargetPicker(title, notice, form, targets, command) {
@@ -446,7 +463,10 @@ function applyLobby(next) {
   write(credentialKey(code), credential);
   write(pendingJoinKey(code), null);
   write(recentKey, code);
-  if (changed) render();
+  if (changed) {
+    render();
+    refreshVoteClosure();
+  }
 }
 
 function handleRoomError(error) {
@@ -1033,7 +1053,11 @@ dialog.addEventListener('input', event => {
   }
 });
 document.addEventListener('click', click);
-dialog.addEventListener('close', () => { if (!dialog.open) dialog.replaceChildren(); });
+dialog.addEventListener('close', () => {
+  if (dialog.open) return;
+  voteClosure = undefined;
+  dialog.replaceChildren();
+});
 window.addEventListener('popstate', () => go(location.pathname, true));
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
