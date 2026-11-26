@@ -234,7 +234,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     let base = await start(options);
     const host = browser();
     const { code } = await json(base, '/api/rooms', host, {
-      tab: host.tab, name: '房主', board: 'custom', lineup: ['wolf', 'villager', 'villager'],
+      tab: host.tab, name: '房主', board: 'custom', lineup: ['wolfBeauty', 'villager', 'villager'],
       customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
     }, 201);
     const act = (command, status) => action(base, code, host, command, status);
@@ -252,9 +252,10 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal((await act({ type: 'acknowledge' })).room.canStart, true);
     const { room: started } = await act({ type: 'match-start' });
     let view = started.match;
-    if (view.phase === 'night') {
-      assert.equal(view.actions[0].action, 'wolf-recognition');
-      view = (await choose(view, 'night-action', 'confirm')).room.match;
+    while (view.phase === 'night') {
+      const night = view.actions.find(entry => entry.kind === 'night-action');
+      assert.ok(['wolf-recognition', 'charm'].includes(night?.action));
+      view = (await choose(view, 'night-action', night.options[0])).room.match;
     }
     assert.equal(view.phase, 'dawn');
     const signup = (await choose(view, 'open-election')).room.match;

@@ -23,8 +23,14 @@ test('a solo host can manage bots, deal, and reach the first sheriff election on
     const manage = page.locator('[data-action=manage]');
     const botSeats = page.locator('.seat').filter({ hasText: '机器人' });
 
-    await page.goto('http://127.0.0.1:' + app.address().port + '/create');
-    await page.locator('[data-action=preset][data-value=classic]').click();
+    // Wolf Beauty cannot self-destruct, so a random interruption cannot skip this election.
+    await page.goto('http://127.0.0.1:' + app.address().port + '/create/custom');
+    const role = name => page.locator(`[data-action=custom-role][data-value=${name}]`);
+    await role('wolfBeauty').click();
+    await button('好人阵营').click();
+    await role('seer').click();
+    await role('hunter').click();
+    for (let index = 0; index < 9; index++) await role('villager').click();
     await button('确认创建').click();
     await page.getByLabel('你的昵称').fill('单人测试');
     await dialog.getByRole('button', { name: '确认创建' }).click();
