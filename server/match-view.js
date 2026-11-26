@@ -1,7 +1,7 @@
 import { canSelfDestruct } from './match-day.js';
 import { electionOpen } from './match-election.js';
 import { isPackWolf, playerAt, roster } from './match-state.js';
-import { fixedChoices, gunReport } from './night-actions.js';
+import { fixedChoices, gunReport, nightChoiceExpired } from './night-actions.js';
 
 export function publicSpeaker(match) {
   switch (match.phase) {
@@ -14,14 +14,14 @@ export function publicSpeaker(match) {
   }
 }
 
-function privateNight(match, player) {
+function privateNight(match, player, now) {
   const inNight = match.phase === 'night';
   const recoveringRecognition = match.round === 1 && !match.winner
     && match.customRules?.firstNightKnife === 'disabled';
   if (!inNight && !recoveringRecognition) return {};
   const { step, alive } = match.night;
   const result = {};
-  if (inNight && step.seats.includes(player.seat)) {
+  if (inNight && step?.seats.includes(player.seat) && !nightChoiceExpired(match, now)) {
     const options = fixedChoices(match, player, step.kind);
     if (options) {
       result.nightAction = { kind: step.kind, window: match.window, options };
@@ -37,7 +37,7 @@ function privateNight(match, player) {
   return result;
 }
 
-export function matchView(match, seat) {
+export function matchView(match, seat, now = Date.now()) {
   const player = playerAt(match, seat);
   const phase = match.phase === 'gun' ? 'death-resolution' : match.phase;
   const result = {
@@ -56,7 +56,7 @@ export function matchView(match, seat) {
       disguise: player.form,
       model: player.modelChoice ?? player.model,
       canSelfDestruct: canSelfDestruct(match, player),
-      ...privateNight(match, player),
+      ...privateNight(match, player, now),
     };
   }
   if (electionOpen(match) && match.phase !== 'sheriff-signup') result.candidates = match.election.candidates;

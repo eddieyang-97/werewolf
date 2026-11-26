@@ -10,6 +10,7 @@ const files = {
   '/': ['index.html', 'text/html'],
   '/app.js': ['app.js', 'text/javascript'],
   '/match.js': ['match.js', 'text/javascript'],
+  '/night-voice.js': ['night-voice.js', 'text/javascript'],
   '/boards.js': ['boards.js', 'text/javascript'],
   '/styles.css': ['styles.css', 'text/css'],
   ...Object.fromEntries([...artwork].map(name => [`/art/${name}.png`, [`art/${name}.png`, 'image/png']])),
@@ -98,7 +99,7 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
           return;
         }
         if (req.method === 'POST' && operation) {
-          const { tab, name, command, avatar, spectate, includeProfile, pendingAvatarId } =
+          const { tab, name, command, avatar, spectate, includeProfile, pendingAvatarId, seenNightCue, nightCuePlaybackComplete } =
             await jsonBody(req, ['join', 'action'].includes(operation) ? 24_576 : undefined);
           let result;
           switch (operation) {
@@ -109,6 +110,8 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
                 takeControl: operation === 'resume',
                 includeProfile: operation === 'resume' && includeProfile === true,
                 pendingAvatarId,
+                seenNightCue,
+                nightCuePlaybackComplete,
               });
               break;
             case 'disconnect': result = await rooms.disconnect(code, token, tab); break;

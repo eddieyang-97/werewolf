@@ -3,6 +3,7 @@ import {
   defaultSheriffMode, nightSchedules, presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
 } from './boards.js';
 import { choiceLabel, exileVote, matchCommand, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
+import { createNightVoice } from './night-voice.js';
 
 const root = document.querySelector('#app');
 const dialog = document.querySelector('#dialog');
@@ -46,9 +47,97 @@ let sequence = 0;
 let retryAction;
 let noticeTimer;
 let matchClock;
+let nightActionClock;
 let roomError = '';
 let showingHistory = false;
 let voteClosure;
+let nightVoiceOn = false;
+let seenNightCue;
+const speechAvailable = Boolean(window.speechSynthesis && window.SpeechSynthesisUtterance);
+const nightVoice = createNightVoice({
+  synthesis: window.speechSynthesis,
+  Utterance: window.SpeechSynthesisUtterance,
+  onError() {
+    nightVoiceOn = false;
+    message('无法播放中文语音，请按屏幕提示报幕。');
+    render();
+  },
+});
+
+function canObserveNightCue() {
+  if (document.hidden) return false;
+  if (nightVoiceOn) return true;
+  if (showingHistory || dialog.open) return false;
+  const call = root.querySelector('.night-call strong');
+  if (!call) return false;
+  const { top, bottom } = call.getBoundingClientRect();
+  return top >= 0 && bottom <= window.innerHeight;
+}
+
+function updateNightVoice() {
+  const match = lobby?.match;
+  const cue = lobby?.self.host && match?.nightCue;
+  if (!cue) {
+    seenNightCue = undefined;
+    nightVoice.stop();
+    return;
+  }
+  if (!canObserveNightCue()) return;
+  if (seenNightCue && seenNightCue.matchId === cue.matchId && seenNightCue.round === cue.round && seenNightCue.role === cue.role) return;
+  seenNightCue = cue;
+  if (nightVoiceOn) nightVoice.speakRole(cue.role);
+}
+
+function interruptNightVoice() {
+  if (nightVoice.stop()) seenNightCue = undefined;
+}
+
+function timedNightAction(match) {
+  return match?.actions?.find(action => action.nightTimer);
+}
+
+function syncNightActionClock(match, requestStartedAt) {
+  const timer = timedNightAction(match)?.nightTimer;
+  if (timer?.deadline === undefined) {
+    nightActionClock = undefined;
+    return;
+  }
+  const { deadline, serverNow } = timer;
+  // The server sampled the timer after we sent the request. Anchor to the send
+  // time so a response held in transit cannot give the action extra time.
+  const expiresAt = requestStartedAt + (deadline - serverNow);
+  const current = nightActionClock;
+  nightActionClock = {
+    deadline, window: match.window,
+    // The largest lower bound is the closest conservative estimate for this deadline.
+    expiresAt: current?.deadline === deadline && current.window === match.window ? Math.max(current.expiresAt, expiresAt) : expiresAt,
+  };
+  // The server sample changes on each poll. Keep the rendered snapshot stable.
+  delete timer.serverNow;
+}
+
+function nightActionRemaining(timer) {
+  if (timer.deadline !== undefined) return Math.max(0, nightActionClock.expiresAt - performance.now());
+  return timer.remaining;
+}
+
+function refreshNightAction() {
+  const match = lobby?.match;
+  const timer = timedNightAction(match)?.nightTimer;
+  const form = dialog.open ? dialog.querySelector('[data-timed-night-action]') : null;
+  const remaining = timer && nightActionRemaining(timer);
+  if (form && (!timer || remaining === 0 || form.elements.command.value !== matchCommand(match, 'night-action'))) {
+    dialog.close();
+  }
+  if (!timer) return;
+  const text = timer.waiting ? '等待播报结束' : remaining === 0 ? '操作时间已到'
+    : `剩余 ${timerText(remaining)}${timer.deadline === undefined ? '（暂停）' : ''}`;
+  for (const clock of [root.querySelector('[data-night-action-clock]'), form?.querySelector('[data-night-action-clock]')]) {
+    if (clock && clock.textContent !== text) clock.textContent = text;
+  }
+  const button = root.querySelector('.night-action[data-action="match-control"]');
+  if (button) button.disabled = !connected || remaining === 0;
+}
 
 function read(key) {
   if (memoryStorage.has(key)) return memoryStorage.get(key);
@@ -330,7 +419,7 @@ function roomScreen() {
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
-    ${match ? matchPanel(match, button, connected, seatVote) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
+    ${match ? matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="${seats.length} 个座位">${seats.map((guest, index) => seatTile(guest, index, seatVote)).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
@@ -346,12 +435,16 @@ function render() {
   root.innerHTML = historyOpen ? matchHistory(lobby.match.history, button) : contents[screen]();
   clearInterval(matchClock);
   const timer = root.querySelector('[data-match-deadline]');
-  if (timer) {
+  refreshNightAction();
+  if (timer || timedNightAction(lobby?.match)) {
     matchClock = setInterval(() => {
-      const remaining = Number(timer.dataset.matchDeadline) - Date.now();
-      const text = timerText(remaining);
-      if (timer.textContent !== text) timer.textContent = text;
-      if (remaining <= 0) clearInterval(matchClock);
+      if (timer) {
+        const remaining = Number(timer.dataset.matchDeadline) - Date.now();
+        const text = timerText(remaining);
+        if (timer.textContent !== text) timer.textContent = text;
+        if (remaining <= 0) clearInterval(matchClock);
+      }
+      refreshNightAction();
     }, 250);
   }
 }
@@ -479,13 +572,15 @@ function roomRequest(operation, body = {}, options = {}) {
   return request(endpoint(operation), { ...body, tab }, credential, options);
 }
 
-function applyLobby(next) {
+function applyLobby(next, requestStartedAt) {
+  syncNightActionClock(next.match, requestStartedAt);
   const changed = !connected || JSON.stringify(next) !== JSON.stringify(lobby);
   if (lobby && next.self.spectator !== lobby.self.spectator) {
     dialog.close();
     message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
   }
   if (lobby && next.self.host !== lobby.self.host) {
+    nightVoiceOn = false;
     message(next.self.host ? '你已成为房主。' : '房主权限已转交。');
   }
   lobby = next;
@@ -500,10 +595,14 @@ function applyLobby(next) {
     render();
     refreshVoteClosure();
   }
+  updateNightVoice();
 }
 
 function handleRoomError(error) {
+  interruptNightVoice();
   if (error.code === 'TAKEN_OVER') {
+    nightVoiceOn = false;
+    seenNightCue = undefined;
     takenOver = true;
     connected = false;
     dialog.close();
@@ -545,13 +644,20 @@ async function poll() {
   const edit = readRecord(key);
   pollInFlight = period;
   try {
-    const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', { pendingAvatarId: edit.id });
+    const body = { pendingAvatarId: edit.id };
+    if (connected && canObserveNightCue()) updateNightVoice();
+    if (connected && canObserveNightCue() && seenNightCue) {
+      body.seenNightCue = seenNightCue;
+      body.nightCuePlaybackComplete = !nightVoice.isSpeaking();
+    }
+    const requestStartedAt = performance.now();
+    const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', body);
     if (period === epoch && version === sequence) {
       if (edit.id && (profile || edit.revision !== profileRevision())) {
         finishAvatarEdit(key, edit, profile);
         if (retryAction?.id === edit.id) retryAction = undefined;
       }
-      applyLobby(next);
+      applyLobby(next, requestStartedAt);
     }
   } catch (error) {
     if (period === epoch && version === sequence) {
@@ -565,12 +671,17 @@ async function poll() {
 }
 
 function leaveConnection() {
+  interruptNightVoice();
   if (screen === 'room' && credential && resumable && !takenOver) {
     roomRequest('disconnect', {}, { keepalive: true }).catch(() => {});
   }
 }
 
 async function go(path, replace = false) {
+  nightVoiceOn = false;
+  seenNightCue = undefined;
+  nightActionClock = undefined;
+  nightVoice.stop();
   if (screen === 'room' && path.replace(/\/$/, '') !== `/room/${code}`) leaveConnection();
   clearTimeout(pollTimer);
   if (location.pathname !== path) history[replace ? 'replaceState' : 'pushState']({}, '', path);
@@ -605,11 +716,12 @@ async function go(path, replace = false) {
   const pending = read(pendingJoinKey(code));
   if (pending) {
     try {
+      const requestStartedAt = performance.now();
       const { profile, ...next } = await request(endpoint('resume'), { tab, includeProfile: true }, pending);
       if (period !== epoch) return;
       credential = pending;
       rememberProfile(profile);
-      applyLobby(next);
+      applyLobby(next, requestStartedAt);
       schedulePoll(1_800);
       return;
     } catch (error) {
@@ -697,6 +809,10 @@ async function submit(event) {
   if (form.dataset.form === 'host-transfer') return action('host-transfer', { target: data.get('choice') });
   if (form.dataset.form === 'add-bot') return action('add-bot', { seat: Number(data.get('choice')) });
   if (form.dataset.form === 'match-choice') {
+    if (form.hasAttribute('data-timed-night-action')) {
+      refreshNightAction();
+      if (!dialog.open) return;
+    }
     const command = JSON.parse(data.get('command'));
     const choices = data.getAll('choice').map(value => JSON.parse(value));
     if (form.hasAttribute('data-swap') && choices.length !== 0 && choices.length !== 2) {
@@ -740,10 +856,11 @@ async function submit(event) {
       credential ??= read(pendingJoinKey(code)) ?? newToken();
       write(pendingJoinKey(code), credential);
       const spectate = form.dataset.form === 'spectate-room';
+      const requestStartedAt = performance.now();
       const { profile, ...next } = await roomRequest('join', { name, avatar, spectate });
       if (period === epoch) {
         rememberProfile(profile);
-        applyLobby(next);
+        applyLobby(next, requestStartedAt);
         schedulePoll(1_800);
       }
     }
@@ -788,11 +905,12 @@ async function action(type, details = {}) {
   waiting = true;
   sequence++;
   try {
+    const requestStartedAt = performance.now();
     const result = await roomRequest('action', { command: { id, type, ...details } });
     if (edit) finishAvatarEdit(key, edit, result.profile);
     if (period !== epoch) return;
     retryAction = undefined;
-    applyLobby(result.room);
+    applyLobby(result.room, requestStartedAt);
     if (type === 'reveal') {
       const { role, extra } = result.assignment;
       showDialog('我的身份', `<div class="identity"><div class="identity-detail" tabindex="0" role="region" aria-labelledby="identity-role">${roleMark(role)}<h3 id="identity-role">${roles[role].name}</h3>${roleDescription(role)}
@@ -835,6 +953,7 @@ function openMatchControl(command) {
   }
   const control = actions.find(entry => entry.kind === requested.kind);
   if (!control) return;
+  if (control.nightTimer && nightActionRemaining(control.nightTimer) === 0) return;
   if (control.kind === 'close-vote') return showVoteClosure(command);
   const label = matchLabel(control);
   if (control.options) {
@@ -845,11 +964,13 @@ function openMatchControl(command) {
     const knife = control.action === 'witch' && Object.hasOwn(self, 'wolfTarget')
       ? `<p>${self.wolfTarget ? `狼刀目标：${self.wolfTarget}号` : '今晚没有普通狼刀目标。'}</p>` : '';
     const duel = control.kind === 'duel' ? '<p>决斗会公开。选中狼人则对方出局，选中好人则你出局。</p>' : '';
-    return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}>
-      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
+    const timed = control.nightTimer ? '<p data-night-action-clock></p><p>超时后，系统会跳过可选操作或代为选择必选项。</p>' : '';
+    showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}${timed ? ' data-timed-night-action' : ''}>
+      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${timed}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
       ${swap ? '<p class="choice-error" role="alert"></p>' : ''}
       <button type="submit" class="button primary">确认</button>
     </form>`);
+    return refreshNightAction();
   }
   const warnings = {
     'self-destruct': '自爆后你将出局。', 'publish-night': '向所有玩家公布昨夜信息？',
@@ -1023,8 +1144,32 @@ async function click(event) {
     case 'confirm-deal':
       return confirm('发放身份', '发放后座位锁定，每位玩家只可查看自己的身份。', 'deal', '确认发放');
     case 'deal': return action('deal');
-    case 'confirm-start': return confirmPrompt('开始游戏？', 'start-match');
-    case 'start-match': return action('match-start');
+    case 'confirm-start':
+      return showDialog('开始游戏？', `<label class="night-voice-option"><input type="checkbox" name="night-narration"${speechAvailable ? '' : ' disabled'}>
+        房主手机播报夜间睁眼提示</label><p id="dialog-description">${speechAvailable ? '开启后，请让房主手机保持在本页。各角色使用相同的限时，超时由系统处理。' : '当前浏览器无法播放语音。'}</p>
+        <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}${button('开始游戏', 'start-match', { variant: 'confirm-accept' })}</div>`, 'prompt-dialog');
+    case 'start-match': {
+      if (waiting || !connected || !lobby?.canStart) return;
+      const narrate = dialog.querySelector('[name="night-narration"]').checked;
+      nightVoiceOn = narrate && nightVoice.prime();
+      return action('match-start', narrate ? { nightNarration: true } : {});
+    }
+    case 'toggle-night-voice': {
+      if (!connected || !lobby?.self.host || !lobby.match?.nightNarration || !speechAvailable) return;
+      if (nightVoiceOn) {
+        nightVoiceOn = false;
+        nightVoice.stop();
+      } else {
+        nightVoiceOn = true;
+        if (lobby.match.nightCue && pollInFlight !== epoch) nightVoice.speakRole(lobby.match.nightCue.role);
+        else {
+          // An outstanding sync may already have advanced the cue.
+          seenNightCue = undefined;
+          nightVoice.prime();
+        }
+      }
+      return render();
+    }
     case 'match-control': return openMatchControl(value);
     case 'confirm-close-vote': return showVoteClosure(value, true);
     case 'confirm-vote': {
@@ -1125,5 +1270,8 @@ dialog.addEventListener('close', () => {
 window.addEventListener('popstate', () => go(location.pathname, true));
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) schedulePoll(0); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) interruptNightVoice();
+  else schedulePoll(0);
+});
 go(location.pathname, true);

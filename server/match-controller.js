@@ -9,16 +9,23 @@ import {
 import { createMatch, finishMatch, livingPlayers, playerAt } from './match-state.js';
 import { matchView, publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
-import { advanceNight, applyNightEffect, beginNight, fixedChoices, mechanicalNightOrder } from './night-actions.js';
+import {
+  applyNightAction, beginNight, currentNightCue, fixedChoices, mechanicalNightOrder, nightChoiceExpired,
+} from './night-actions.js';
+import { nightCallOrder } from '../public/boards.js';
 
-function nightOrder(board, rules) {
-  return board === 'mechanical' ? mechanicalNightOrder : rules.nightOrder(board);
+function startRoomNight(room, rules) {
+  const { board, match } = room;
+  const order = match.nightNarration ? nightCallOrder(board, match.round + 1, room.lineup)
+    : board === 'mechanical' ? mechanicalNightOrder : rules.nightOrder(board);
+  beginNight(match, order, rules);
 }
 
-export function startMatch(room, rules) {
+export function startMatch(room, rules, nightNarration = false) {
   const seated = room.guests.filter(guest => guest.seat !== null);
   room.match = createMatch(room.board, seated, room.sheriffMode, room.customRules);
-  beginNight(room.match, nightOrder(room.board, rules), rules);
+  if (nightNarration) room.match.nightNarration = true;
+  startRoomNight(room, rules);
 }
 
 export function abandonMatch(match, winner = 'abandoned') {
@@ -43,7 +50,7 @@ function recoveryControls(match) {
   return actions;
 }
 
-function controls(match, player, host, rules, bot = false) {
+function controls(match, player, host, rules, now, bot = false) {
   const actions = [];
   if (!player) return actions;
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
@@ -69,11 +76,17 @@ function controls(match, player, host, rules, bot = false) {
 
   switch (phase) {
     case 'night': {
-      if (!night.step.seats.includes(seat)) break;
+      if (!night.step?.seats.includes(seat) || nightChoiceExpired(match, now)) break;
       const { kind } = night.step;
       const fixed = fixedChoices(match, player, kind);
       const options = fixed ?? rules.nightChoices(match, player, kind);
-      if (options.length) add('night-action', options, { action: kind, ...(kind === 'swap' ? { multiple: true } : {}) });
+      if (options.length) add('night-action', options, {
+        action: kind,
+        ...(kind === 'swap' ? { multiple: true } : {}),
+        ...(match.nightNarration ? { nightTimer: night.cueClock?.deadline !== undefined
+          ? { deadline: night.cueClock.deadline, serverNow: now }
+          : night.cueClock ? { remaining: night.cueClock.remaining } : { waiting: true } } : {}),
+      });
       break;
     }
     case 'dawn':
@@ -121,14 +134,18 @@ function controls(match, player, host, rules, bot = false) {
   return actions;
 }
 
-export function seatActions(room, guest, rules) {
-  return controls(room.match, playerAt(room.match, guest.seat), guest.id === room.hostId, rules, guest.bot === true);
+export function seatActions(room, guest, rules, now) {
+  return controls(room.match, playerAt(room.match, guest.seat), guest.id === room.hostId, rules, now, guest.bot === true);
 }
 
-export function controllerView(match, seat, host, rules) {
-  const view = matchView(match, seat);
+export function controllerView(match, seat, host, rules, now = Date.now()) {
+  const view = matchView(match, seat, now);
+  if (host && match.nightNarration && !match.winner) {
+    view.nightNarration = true;
+    if (match.phase === 'night') view.nightCue = currentNightCue(match);
+  }
   const player = playerAt(match, seat);
-  const actions = controls(match, player, host, rules);
+  const actions = controls(match, player, host, rules, now);
   const hostActions = host && player ? recoveryControls(match) : [];
   const ballot = getBallot(match);
   if (host && ballot) {
@@ -154,16 +171,10 @@ function closeVote(match, ballot) {
   else closeExileVote(match);
 }
 
-function applyChoice(match, player, kind, choice, rules, now) {
+function applyChoice(room, player, kind, choice, rules, now) {
+  const { match } = room;
   switch (kind) {
-    case 'night-action': {
-      const action = match.night.step.kind;
-      if (fixedChoices(match, player, action) !== null) {
-        applyNightEffect(match, player, action, choice);
-        advanceNight(match, rules);
-      } else if (rules.applyNightChoice(match, player, action, choice)) advanceNight(match, rules);
-      break;
-    }
+    case 'night-action': applyNightAction(match, player, choice, rules); break;
     case 'vote': {
       const ballot = getBallot(match);
       ballot.votes[player.seat] = choice;
@@ -200,7 +211,7 @@ function applyChoice(match, player, kind, choice, rules, now) {
     case 'open-exile': openExileVote(match); break;
     case 'self-destruct': selfDestruct(match, player); break;
     case 'start-timer': match.timer = { deadline: now + choice * 1_000 }; break;
-    case 'next-night': beginNight(match, nightOrder(match.board, rules), rules); break;
+    case 'next-night': startRoomNight(room, rules); break;
   }
 }
 
@@ -209,7 +220,7 @@ export function executeMatchChoice(room, guest, command, rules, now) {
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
   const player = playerAt(match, guest.seat);
   const host = guest.id === room.hostId;
-  const action = seatActions(room, guest, rules).find(entry => entry.kind === command.kind)
+  const action = seatActions(room, guest, rules, now).find(entry => entry.kind === command.kind)
     ?? (host && player ? recoveryControls(match).find(entry => entry.kind === command.kind) : undefined);
   if (!action || !validChoice(action, command.choice)) return false;
   if (command.kind === 'rematch') {
@@ -223,7 +234,7 @@ export function executeMatchChoice(room, guest, command, rules, now) {
       participant.acknowledged = false;
     }
   } else {
-    applyChoice(match, player, command.kind, command.choice, rules, now);
+    applyChoice(room, player, command.kind, command.choice, rules, now);
   }
   return true;
 }

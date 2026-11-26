@@ -62,7 +62,7 @@ test('a solo host can manage bots, deal, and reach the first sheriff election on
     await button('准备就绪').click();
     await button('确定').click();
     await button('开始游戏').click();
-    await button('确定').click();
+    await dialog.getByRole('button', { name: '开始游戏', exact: true }).click();
 
     // The host's randomly dealt role can require a private choice during night one.
     const nightAction = page.locator('.match-actions .night-action');

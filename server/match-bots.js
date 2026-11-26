@@ -56,7 +56,7 @@ export function progressBots(room, rules, now, choose = randomInt) {
     // A shared wolf prompt is settled by the first submission. Leave it open for a human wolf.
     if (match.phase === 'night' && room.guests.some(guest => !guest.bot && match.night.step?.seats.includes(guest.seat))) break;
 
-    const turns = bots.map(bot => ({ bot, actions: seatActions(room, bot, rules) }));
+    const turns = bots.map(bot => ({ bot, actions: seatActions(room, bot, rules, now) }));
     let interrupted = false;
     for (const { bot, actions } of turns) {
       const optional = actions.filter(action => interrupts.has(action.kind));
