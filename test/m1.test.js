@@ -683,6 +683,14 @@ describe('room HTTP', { concurrency: 4 }, () => {
       await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
       await action(base, code, guest, { type: 'seat', seat: index + 2 });
     }
+    const unseated = guests.at(-1);
+    await action(base, code, unseated, { type: 'stand' });
+    assert.equal((await json(base, `/api/rooms/${code}`)).full, false);
+    const newcomer = browser();
+    const joined = await roomApi(base, code, newcomer, 'join', { name: '新玩家' });
+    assert.ok(joined.waiting.some(guest => guest.name === `玩家${lineup.length}`));
+    await action(base, code, newcomer, { type: 'seat', seat: lineup.length });
+    guests[guests.length - 1] = newcomer;
     assert.equal((await json(base, `/api/rooms/${code}`)).full, true);
     assert.equal((await roomApi(base, code, browser(), 'join', { name: '访客' }, 409)).code, 'FULL');
     const spectator = browser();

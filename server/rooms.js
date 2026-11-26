@@ -16,6 +16,7 @@ const ROOM_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
 const AVATAR_SIZE = 128;
 const AVATAR_BYTES = 12_288;
 const SPECTATOR_LIMIT = 24;
+const WAITING_PLAYER_ALLOWANCE = 12;
 
 export class RoomError extends Error {
   constructor(status, code, message) {
@@ -445,7 +446,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
               roomError(409, 'SPECTATORS_FULL', '观战人数已满。');
             }
           } else {
-            const playerSessionLimit = Math.max(24, seatsIn(room));
+            const playerSessionLimit = Math.max(24, seatsIn(room) + WAITING_PLAYER_ALLOWANCE);
             if (status.full || room.guests.filter(item => !item.spectator && !item.bot).length >= playerSessionLimit) {
               roomError(409, 'FULL', '房间已满。');
             }

@@ -78,6 +78,50 @@ test('bots use legal swaps and ballots without taking over a human wolf or speak
     [2, 3, 4, 5]);
 });
 
+test('a large bot ballot builds choices in batches and resumes after a saved poll', () => {
+  const botCount = 128;
+  let room = roomWithRoles(['wolfBeauty', ...Array(botCount).fill('villager')], [1], 'none');
+  playChoice(room, 1, 'night-action', 'confirm');
+  playChoice(room, 1, 'night-action', 2);
+  playChoice(room, 1, 'publish-night');
+  while (room.match.phase === 'discussion') playChoice(room, 1, 'finish-speech');
+  playChoice(room, 1, 'open-exile');
+
+  let targetLists = 0;
+  const rules = {
+    ...matchRules,
+    ballotTargets(ballot, seat) {
+      targetLists++;
+      return matchRules.ballotTargets(ballot, seat);
+    },
+  };
+  const poll = () => {
+    targetLists = 0;
+    const changed = progressBots(room, rules, 0, () => 0);
+    assert.ok(targetLists <= 32, `one poll built ${targetLists} target lists`);
+    return changed;
+  };
+  assert.equal(poll(), true);
+  const firstVotes = { ...room.match.day.ballot.votes };
+  let votesCast = Object.keys(firstVotes).length;
+  assert.ok(votesCast > 0 && votesCast < botCount);
+  assert.ok(!room.match.history.some(event => event.kind === 'exile-vote'));
+  room = JSON.parse(JSON.stringify(room));
+  while (votesCast < botCount) {
+    assert.equal(poll(), true);
+    const total = Object.keys(room.match.day.ballot.votes).length;
+    assert.ok(total > votesCast);
+    votesCast = total;
+  }
+  assert.equal(poll(), false);
+  for (const [seat, target] of Object.entries(firstVotes)) assert.equal(room.match.day.ballot.votes[seat], target);
+  assert.ok(!Object.hasOwn(room.match.day.ballot.votes, 1));
+  playChoice(room, 1, 'vote', null);
+  const ballot = room.match.history.find(event => event.kind === 'exile-vote').ballot;
+  assert.deepEqual(ballot.groups, [{ seat: 1, count: botCount, voters: room.guests.slice(1).map(bot => bot.seat) }]);
+  assert.deepEqual(ballot.abstained, [1]);
+});
+
 test('bot-only sheriff voting stays open for a human interruption in both rounds', () => {
   const room = roomWithRoles(['wolf', 'villager', 'villager', 'villager'], [1, 2], 'single');
   const { match } = room;

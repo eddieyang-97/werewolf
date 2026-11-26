@@ -22,6 +22,9 @@ export function createMatch(board, guests, sheriffMode = defaultSheriffMode, cus
 }
 
 export function playerAt(match, seat) {
+  // Dealt rosters store one player per seat in seat order.
+  const player = match.players[seat - 1];
+  if (player && player.seat === seat) return player;
   return match.players.find(player => player.seat === seat);
 }
 
