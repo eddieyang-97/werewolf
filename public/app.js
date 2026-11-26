@@ -581,7 +581,10 @@ async function poll() {
   pollInFlight = period;
   try {
     const body = { pendingAvatarId: edit.id };
-    if (connected && !document.hidden && seenNightCue) body.seenNightCue = seenNightCue;
+    if (connected && !document.hidden && seenNightCue) {
+      body.seenNightCue = seenNightCue;
+      body.nightCuePlaybackComplete = !nightVoice.isSpeaking();
+    }
     const { profile, ...next } = await roomRequest(resumable ? 'sync' : 'resume', body);
     if (period === epoch && version === sequence) {
       if (edit.id && (profile || edit.revision !== profileRevision())) {
@@ -885,8 +888,9 @@ function openMatchControl(command) {
     const knife = control.action === 'witch' && Object.hasOwn(self, 'wolfTarget')
       ? `<p>${self.wolfTarget ? `狼刀目标：${self.wolfTarget}号` : '今晚没有普通狼刀目标。'}</p>` : '';
     const duel = control.kind === 'duel' ? '<p>决斗会公开。选中狼人则对方出局，选中好人则你出局。</p>' : '';
+    const timed = control.duration ? `<p>播报结束后有 ${control.duration / 1000} 秒操作时间。超时后，系统会跳过可选操作或代为选择必选项。</p>` : '';
     return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}>
-      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
+      <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${timed}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
       ${swap ? '<p class="choice-error" role="alert"></p>' : ''}
       <button type="submit" class="button primary">确认</button>
     </form>`);
@@ -1059,7 +1063,7 @@ async function click(event) {
     case 'deal': return action('deal');
     case 'confirm-start':
       return showDialog('开始游戏？', `<label class="night-voice-option"><input type="checkbox" name="night-narration"${speechAvailable ? '' : ' disabled'}>
-        房主手机播报夜间睁眼提示</label><p id="dialog-description">${speechAvailable ? '开启后，请保持本页在前台，让全桌听到提示。' : '当前浏览器无法播放语音。'}</p>
+        房主手机播报夜间睁眼提示</label><p id="dialog-description">${speechAvailable ? '开启后，请让房主手机保持在本页。各角色使用相同的限时，超时由系统处理。' : '当前浏览器无法播放语音。'}</p>
         <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}${button('开始游戏', 'start-match', { variant: 'confirm-accept' })}</div>`, 'prompt-dialog');
     case 'start-match': {
       if (waiting || !connected || !lobby?.canStart) return;
@@ -1074,8 +1078,12 @@ async function click(event) {
         nightVoice.stop();
       } else {
         nightVoiceOn = true;
-        if (lobby.match.nightCue) nightVoice.speakRole(lobby.match.nightCue.role);
-        else nightVoice.prime();
+        if (lobby.match.nightCue && pollInFlight !== epoch) nightVoice.speakRole(lobby.match.nightCue.role);
+        else {
+          // An outstanding sync may already have advanced the cue.
+          seenNightCue = undefined;
+          nightVoice.prime();
+        }
       }
       return render();
     }

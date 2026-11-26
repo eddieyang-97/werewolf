@@ -99,7 +99,7 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
           return;
         }
         if (req.method === 'POST' && operation) {
-          const { tab, name, command, avatar, spectate, includeProfile, pendingAvatarId, seenNightCue } =
+          const { tab, name, command, avatar, spectate, includeProfile, pendingAvatarId, seenNightCue, nightCuePlaybackComplete } =
             await jsonBody(req, ['join', 'action'].includes(operation) ? 24_576 : undefined);
           let result;
           switch (operation) {
@@ -111,6 +111,7 @@ export function createApp(store, { clock = Date.now, revision = 'local', matchRu
                 includeProfile: operation === 'resume' && includeProfile === true,
                 pendingAvatarId,
                 seenNightCue,
+                nightCuePlaybackComplete,
               });
               break;
             case 'disconnect': result = await rooms.disconnect(code, token, tab); break;

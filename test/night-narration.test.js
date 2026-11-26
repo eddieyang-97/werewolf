@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { buildDeck } from '../server/deal.js';
 import { matchRules } from '../server/match-rules.js';
+import { nightChoiceDuration } from '../server/night-actions.js';
 import { createRooms, tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
@@ -38,32 +39,43 @@ function table(t, board, lineup, { persistent = false, customRules } = {}) {
   function act(player, type, details = {}) {
     return rooms.action(code, player.token, player.record.tab, { id: randomUUID(), type, ...details }).room.match;
   }
-  function poll(player, seen) {
-    return rooms.sync(code, player.token, player.record.tab, { seenNightCue: seen?.nightCue }).match;
+  function poll(player, seen, nightCuePlaybackComplete = true) {
+    return rooms.sync(code, player.token, player.record.tab, { seenNightCue: seen?.nightCue, nightCuePlaybackComplete }).match;
   }
   function play(player, kind, choice) {
     const { matchId, window } = poll(player);
     return act(player, 'match-choice', { matchId, window, kind, choice });
   }
-  function elapse() { now += 1_000_000; }
+  function elapse(milliseconds = nightChoiceDuration, online = players) {
+    while (milliseconds > 0) {
+      const tick = Math.min(milliseconds, 5_000);
+      now += tick;
+      milliseconds -= tick;
+      for (const player of online) poll(player);
+    }
+  }
   function nextCue(seen, narrator = host) {
+    poll(narrator, seen);
     elapse();
     return poll(narrator, seen);
+  }
+  function disconnect(player) {
+    rooms.disconnect(code, player.token, player.record.tab);
   }
   function restart() {
     store.close();
     store = openStore(path);
     rooms = createRooms(store, () => now, matchRules);
   }
-  return { players, host, role, spectator, act, poll, play, elapse, nextCue, restart };
+  return { players, host, role, spectator, act, poll, play, elapse, nextCue, restart, disconnect };
 }
 
 function assertCue(view, round, role) {
   assert.deepEqual(view.nightCue, { matchId: view.canAbandon, round, role });
 }
 
-test('only the current host can advance an observed cue, and an accepted late choice survives restart and retry', t => {
-  const { host, role, players, spectator, act, poll, play, elapse, restart } =
+test('only the current host can advance an observed cue, and an accepted choice survives restart and retry', t => {
+  const { host, role, players, spectator, act, poll, play, elapse, nextCue, restart } =
     table(t, 'custom', ['guard', 'wolf', 'seer', 'villager', 'villager'], { persistent: true });
   const successor = players.find(player => player !== host && player.record.assignment.role === 'villager');
   const guard = role('guard');
@@ -84,7 +96,7 @@ test('only the current host can advance an observed cue, and an accepted late ch
   const { matchId, window } = poll(guard);
   const command = { id: randomUUID(), matchId, window, kind: 'night-action', choice: guard.record.seat };
   elapse();
-  assert.deepEqual(poll(host, first), first); // No timeout may take away the Guard's choice.
+  assert.deepEqual(poll(host, first), first);
   act(guard, 'match-choice', command);
   restart();
   assert.equal(act(guard, 'match-choice', command).actions, undefined);
@@ -100,13 +112,13 @@ test('only the current host can advance an observed cue, and an accepted late ch
   assert.equal(poll(wolf).actions, undefined);
   assert.deepEqual(poll(successor).nightCue, first.nightCue);
   assert.deepEqual(poll(successor, { nightCue: { ...first.nightCue, matchId: randomUUID() } }).nightCue, first.nightCue);
-  const wolfCue = poll(successor, first);
+  const wolfCue = nextCue(first, successor);
   assertCue(wolfCue, 1, 'wolf');
   assert.equal(poll(wolf).actions[0].action, 'knife');
   play(wolf, 'night-action', null);
   elapse();
   assert.deepEqual(poll(successor, first).nightCue, wolfCue.nightCue);
-  assert.equal(poll(successor, wolfCue).nightCue.role, 'seer');
+  assert.equal(nextCue(wolfCue, successor).nightCue.role, 'seer');
   const result = act(successor, 'match-abandon', { matchId });
   assert.equal(result.phase, 'finished');
   assert.equal(result.nightCue, undefined);
@@ -121,7 +133,9 @@ test('a no-knife first night calls the wolves for private recognition and preser
   const opening = act(host, 'match-start', { nightNarration: true });
   assertCue(opening, 1, 'wolf');
   assert.equal(opening.self.teammates, undefined);
-  assert.deepEqual(poll(wolf).actions, [{ kind: 'night-action', action: 'wolf-recognition', options: ['confirm'] }]);
+  assert.deepEqual(poll(wolf).actions, [{
+    kind: 'night-action', action: 'wolf-recognition', options: ['confirm'], duration: nightChoiceDuration,
+  }]);
   assert.throws(() => play(wolf, 'night-action', host.record.seat), { code: 'MATCH_ACTION' });
   play(wolf, 'night-action', 'confirm');
   assert.deepEqual(poll(host, opening), opening);
@@ -131,6 +145,55 @@ test('a no-knife first night calls the wolves for private recognition and preser
   assert.equal(dawn.nightCue, undefined);
   assert.equal(dawn.self.teammates, undefined);
   assert.deepEqual(poll(king).self.teammates, [wolf.record.seat]);
+});
+
+test('late delivery and unfinished speech cannot use up the first cue window', t => {
+  const { host, role, act, poll, play, elapse } =
+    table(t, 'custom', ['guard', 'wolf', 'seer', 'villager']);
+  const first = act(host, 'match-start', { nightNarration: true });
+  play(role('guard'), 'night-action', null);
+
+  elapse(nightChoiceDuration * 3);
+  assertCue(poll(host, first, false), 1, 'guard');
+  elapse(nightChoiceDuration * 3);
+  assertCue(poll(host, first, false), 1, 'guard');
+  assertCue(poll(host, first), 1, 'guard');
+  elapse(nightChoiceDuration - 1);
+  assertCue(poll(host, first), 1, 'guard');
+  elapse(1);
+  assertCue(poll(host, first), 1, 'wolf');
+});
+
+test('an offline unrelated seat pauses the window, and an unanswered required choice falls back at expiry', t => {
+  const { host, role, act, poll, nextCue, elapse, disconnect, players } =
+    table(t, 'custom', ['wolf', 'seer', 'villager', 'villager']);
+  const seer = role('seer');
+  const villager = players.find(player => player !== host && player.record.assignment.role === 'villager');
+  const first = act(host, 'match-start', { nightNarration: true });
+  const cue = nextCue(first);
+  assertCue(cue, 1, 'seer');
+  const { matchId, window, actions: [action] } = poll(seer);
+
+  poll(host, cue);
+  elapse(8_000);
+  disconnect(villager);
+  elapse(nightChoiceDuration * 3, players.filter(player => player !== villager));
+  assertCue(poll(host, cue), 1, 'seer');
+  assert.equal(poll(seer).window, window);
+  poll(villager);
+  poll(host, cue);
+  elapse(nightChoiceDuration - 8_000 - 1);
+  assertCue(poll(host, cue), 1, 'seer');
+  elapse(1);
+  assert.throws(() => act(seer, 'match-choice', { matchId, window, kind: 'night-action', choice: action.options[0] }),
+    { code: 'MATCH_ACTION' });
+  const dawn = poll(host, cue);
+  assert.equal(dawn.phase, 'dawn');
+  assert.deepEqual(dawn.self.inspections, []);
+  const [result] = poll(seer).self.inspections;
+  assert.equal(result.kind, 'seer');
+  assert.ok(action.options.includes(result.seat));
+  assert.equal(poll(seer).self.inspections.length, 1);
 });
 
 test('a custom second night still calls a depleted Poisoner and a dead Seer', t => {
@@ -186,13 +249,13 @@ test('Thief night one calls the missing power and omits the ordinary knife regar
   assert.equal(view.phase, 'dawn');
 });
 
-test('the Mechanical Wolf keeps its own public call after copying the Medium', t => {
-  const { host, role, players, act, poll, play, nextCue } = table(t, 'mechanical');
+for (const copied of ['medium', 'villager']) test(`the Mechanical Wolf cue has the same duration after copying ${copied}`, t => {
+  const { host, role, players, act, poll, play, nextCue, elapse } = table(t, 'mechanical');
   const mechanical = role('mechanical');
   const medium = role('medium');
   let view = act(host, 'match-start', { nightNarration: true });
   for (const [id, choice] of [['guard', null], ['wolf', null], ['witch', null],
-    ['mechanical', medium.record.seat], ['medium', mechanical.record.seat], ['hunter', 'confirm']]) {
+    ['mechanical', role(copied).record.seat], ['medium', mechanical.record.seat], ['hunter', 'confirm']]) {
     assertCue(view, 1, id);
     play(role(id), 'night-action', choice);
     view = nextCue(view);
@@ -210,10 +273,14 @@ test('the Mechanical Wolf keeps its own public call after copying the Medium', t
     view = nextCue(view);
   }
   assertCue(view, 2, 'mechanical');
-  assert.equal(poll(mechanical).actions[0].action, 'medium');
+  assert.equal(poll(mechanical).actions?.[0].action, copied === 'medium' ? 'medium' : undefined);
   assert.equal(poll(medium).actions, undefined);
   assert.equal(view.self.copied, undefined);
-  play(mechanical, 'night-action', medium.record.seat);
-  assertCue(nextCue(view), 2, 'medium');
+  poll(host, view);
+  elapse(nightChoiceDuration - 1);
+  assertCue(poll(host, view), 2, 'mechanical');
+  elapse(1);
+  assertCue(poll(host, view), 2, 'medium');
+  assert.equal(poll(mechanical).self.inspections.length, copied === 'medium' ? 1 : 0);
   assert.equal(poll(medium).actions[0].action, 'medium');
 });

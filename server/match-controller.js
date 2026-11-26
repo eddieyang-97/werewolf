@@ -9,21 +9,23 @@ import {
 import { createMatch, finishMatch, livingPlayers, playerAt } from './match-state.js';
 import { matchView, publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
-import { advanceNight, applyNightEffect, beginNight, currentNightCue, fixedChoices, mechanicalNightOrder } from './night-actions.js';
+import {
+  applyNightAction, beginNight, currentNightCue, fixedChoices, mechanicalNightOrder, nightChoiceDuration, nightChoiceExpired,
+} from './night-actions.js';
 import { nightCallOrder } from '../public/boards.js';
 
-function startRoomNight(room, rules, now) {
+function startRoomNight(room, rules) {
   const { board, match } = room;
   const order = match.nightNarration ? nightCallOrder(board, match.round + 1, room.lineup)
     : board === 'mechanical' ? mechanicalNightOrder : rules.nightOrder(board);
-  beginNight(match, order, rules, now);
+  beginNight(match, order, rules);
 }
 
-export function startMatch(room, rules, nightNarration = false, now = Date.now()) {
+export function startMatch(room, rules, nightNarration = false) {
   const seated = room.guests.filter(guest => guest.seat !== null);
   room.match = createMatch(room.board, seated, room.sheriffMode, room.customRules);
   if (nightNarration) room.match.nightNarration = true;
-  startRoomNight(room, rules, now);
+  startRoomNight(room, rules);
 }
 
 export function abandonMatch(match, winner = 'abandoned') {
@@ -77,7 +79,11 @@ function controls(match, player, host, rules) {
       const { kind } = night.step;
       const fixed = fixedChoices(match, player, kind);
       const options = fixed ?? rules.nightChoices(match, player, kind);
-      if (options.length) add('night-action', options, { action: kind, ...(kind === 'swap' ? { multiple: true } : {}) });
+      if (options.length) add('night-action', options, {
+        action: kind,
+        ...(kind === 'swap' ? { multiple: true } : {}),
+        ...(match.nightNarration ? { duration: nightChoiceDuration } : {}),
+      });
       break;
     }
     case 'dawn':
@@ -162,15 +168,7 @@ function closeVote(match, ballot) {
 function applyChoice(room, player, kind, choice, rules, now) {
   const { match } = room;
   switch (kind) {
-    case 'night-action': {
-      const action = match.night.step.kind;
-      if (fixedChoices(match, player, action) !== null) {
-        applyNightEffect(match, player, action, choice);
-      } else if (!rules.applyNightChoice(match, player, action, choice)) break;
-      if (match.nightNarration) match.night.step = null;
-      else advanceNight(match, rules, now);
-      break;
-    }
+    case 'night-action': applyNightAction(match, player, choice, rules); break;
     case 'vote': {
       const ballot = getBallot(match);
       ballot.votes[player.seat] = choice;
@@ -207,13 +205,14 @@ function applyChoice(room, player, kind, choice, rules, now) {
     case 'open-exile': openExileVote(match); break;
     case 'self-destruct': selfDestruct(match, player); break;
     case 'start-timer': match.timer = { deadline: now + choice * 1_000 }; break;
-    case 'next-night': startRoomNight(room, rules, now); break;
+    case 'next-night': startRoomNight(room, rules); break;
   }
 }
 
 export function executeMatchChoice(room, guest, command, rules, now) {
   const { match } = room;
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
+  if (command.kind === 'night-action' && nightChoiceExpired(match, now)) return false;
   const player = playerAt(match, guest.seat);
   const host = guest.id === room.hostId;
   const action = controls(match, player, host, rules).find(entry => entry.kind === command.kind)

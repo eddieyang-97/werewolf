@@ -20,13 +20,17 @@ function setup() {
 test('a tap primes silently and only known role names are spoken in Mandarin', () => {
   const { voice, spoken, errors } = setup();
   assert.equal(voice.prime(), true);
+  assert.equal(voice.isSpeaking(), false);
   assert.equal(spoken[0].text, '');
   for (const role of ['constructor', '无效请睁眼', null]) assert.equal(voice.speakRole(role), false);
   assert.equal(voice.speakRole('wolfBeauty'), true);
+  assert.equal(voice.isSpeaking(), true);
   assert.deepEqual(spoken.map(({ text, lang }) => [text, lang]), [
     ['', 'zh-CN'], ['狼美人请睁眼', 'zh-CN'],
   ]);
   assert.deepEqual(errors, []);
+  spoken[1].onend();
+  assert.equal(voice.isSpeaking(), false);
 });
 
 test('stopping or replacing a cue ignores stale synthesis callbacks', () => {
@@ -35,8 +39,10 @@ test('stopping or replacing a cue ignores stale synthesis callbacks', () => {
   voice.speakRole('wolf');
   spoken[0].onend();
   spoken[0].onerror({ error: 'audio-hardware' });
+  assert.equal(voice.isSpeaking(), true);
   spoken[1].onerror({ error: 'language-unavailable' });
   assert.deepEqual(errors, ['language-unavailable']);
+  assert.equal(voice.isSpeaking(), false);
 
   voice.speakRole('witch');
   assert.equal(voice.stop(), true);

@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server/main.js",
     "test": "node --test",
-    "test:browser": "node --test checks/profile-browser.mjs"
+    "test:browser": "node --test checks/*.mjs"
   },
   "dependencies": {
     "jpeg-js": "^0.4.4",

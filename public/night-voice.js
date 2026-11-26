@@ -26,7 +26,7 @@ export function createNightVoice({ synthesis, Utterance, onError }) {
       utterance.onerror = ({ error }) => {
         if (current !== utterance) return;
         current = undefined;
-        if (text && error !== 'canceled' && error !== 'interrupted') onError(error);
+        if (text) onError(error);
       };
       current = utterance;
       synthesis.speak(utterance);
@@ -45,6 +45,7 @@ export function createNightVoice({ synthesis, Utterance, onError }) {
       if (typeof roleId !== 'string' || !Object.hasOwn(roles, roleId)) return false;
       return speak(`${roles[roleId].name}请睁眼`);
     },
+    isSpeaking: () => Boolean(current?.text),
     stop,
   };
 }

@@ -4,8 +4,9 @@ import { knifeOwners, mediumResult, nightDeaths, nightTarget, settleNightDeaths 
 import { nightSchedules } from '../public/boards.js';
 
 export const mechanicalNightOrder = nightSchedules.mechanical;
+export const nightChoiceDuration = 20_000;
 
-export function beginNight(match, order, rules, now) {
+export function beginNight(match, order, rules) {
   match.round++;
   const alive = livingPlayers(match);
   const thief = alive.find(player => player.role === 'thief');
@@ -19,7 +20,7 @@ export function beginNight(match, order, rules, now) {
     poisons: [],
     dreams: [],
   };
-  advanceNight(match, rules, now);
+  advanceNight(match, rules);
 }
 
 function stepFor(match, position) {
@@ -87,35 +88,64 @@ function eligibleStep(match, position, rules) {
   return step;
 }
 
-// A quiet slot can last as long as one with a pending action.
-function cueDelay() {
-  let delay = randomInt(4_000);
-  while (randomInt(2) === 0) delay += 4_000;
-  return delay;
-}
-
 export function currentNightCue(match) {
   const { order, cursor } = match.night;
   const position = order[cursor];
   return { matchId: match.id, round: match.round, role: { knife: 'wolf', 'thief-start': 'thief' }[position] ?? position };
 }
 
+export function pauseNightCue(match, cutoff) {
+  const clock = match?.phase === 'night' && match.night.cueClock;
+  if (clock?.deadline === undefined) return false;
+  clock.remaining = Math.max(0, clock.deadline - cutoff);
+  delete clock.deadline;
+  return true;
+}
+
+export function nightChoiceExpired(match, now) {
+  const clock = match.night?.cueClock;
+  return clock?.deadline === undefined ? clock?.remaining === 0 : now >= clock.deadline;
+}
+
+export function applyNightAction(match, player, choice, rules) {
+  const { night } = match;
+  const { kind } = night.step;
+  if (fixedChoices(match, player, kind) !== null) applyNightEffect(match, player, kind, choice);
+  else if (!rules.applyNightChoice(match, player, kind, choice)) return;
+  if (match.nightNarration) night.step = null;
+  else advanceNight(match, rules);
+}
+
 // Only the controlling host observing this exact public cue can move the call along.
 export function progressNightCue(match, seen, rules, now) {
   if (!match?.nightNarration || match.phase !== 'night' || seen?.matchId !== match.id) return false;
   const cue = currentNightCue(match);
-  if (seen.round !== cue.round || seen.role !== cue.role || now < match.night.nextCueCheck) return false;
-  if (match.night.step) match.night.nextCueCheck = now + 1_000 + cueDelay();
-  else advanceNight(match, rules, now);
+  if (seen.round !== cue.round || seen.role !== cue.role) return false;
+  const { night } = match;
+  const clock = night.cueClock ??= { remaining: nightChoiceDuration };
+  if (clock.deadline === undefined && clock.remaining > 0) {
+    clock.deadline = now + clock.remaining;
+    return true;
+  }
+  if (!nightChoiceExpired(match, now)) return false;
+  if (night.step) {
+    const { seats, kind } = night.step;
+    const player = playerAt(match, seats[0]);
+    const choices = fixedChoices(match, player, kind) ?? rules.nightChoices(match, player, kind);
+    // Use the legal pass where available. Required choices get a legal option.
+    const fallback = kind === 'swap' ? [] : choices.includes(null) ? null : choices[randomInt(choices.length)];
+    applyNightAction(match, player, fallback, rules);
+  }
+  advanceNight(match, rules);
   return true;
 }
 
-export function advanceNight(match, rules, now = Date.now()) {
+export function advanceNight(match, rules) {
   const { night } = match;
+  delete night.cueClock;
   while (++night.cursor < night.order.length) {
     night.step = eligibleStep(match, night.order[night.cursor], rules);
-    if (match.nightNarration) night.nextCueCheck = now + 8_000 + cueDelay();
-    else if (!night.step) continue;
+    if (!match.nightNarration && !night.step) continue;
     changePhase(match, 'night');
     return;
   }
