@@ -182,6 +182,8 @@ test('an eligible player sees the live and paused timer and the dialog closes at
   rooms.sync(code, wolf.token, wolf.guest.tab);
   ack();
   await timer.filter({ hasText: /^剩余 00:12$/ }).waitFor();
+  // Verify local expiry while the browser is still waiting for its next snapshot.
+  await page.route(`**/api/rooms/${code}/sync`, () => {});
   await page.evaluate(() => { window.actionTimerOffset += 12_000; });
   await page.locator('dialog').waitFor({ state: 'hidden' });
   assert.equal(await control.isDisabled(), true);
@@ -208,4 +210,38 @@ test('resuming with an expired response does not reopen the private action', { t
   await control.waitFor();
   assert.equal(await control.isDisabled(), true);
   assert.equal(await page.locator('[data-night-action-clock]').textContent(), '操作时间已到');
+});
+
+test('a fresh poll restores an action after a slow outgoing reconnect request', { timeout: 30_000 }, async t => {
+  const { code, host, guard, players, rooms, elapse, playerPage, url } = await game(t);
+  const { room: { match: { nightCue } } } = rooms.action(code, host.token, host.guest.tab, {
+    id: randomUUID(), type: 'match-start', nightNarration: true,
+  });
+  rooms.sync(code, host.token, host.guest.tab, { seenNightCue: nightCue, nightCuePlaybackComplete: true });
+  elapse(nightChoiceDuration - 10_000);
+  const page = await playerPage(guard);
+  await page.route(`**/api/rooms/${code}/resume`, async route => {
+    elapse(5_500, players.filter(player => player !== guard));
+    await page.evaluate(() => {
+      const now = performance.now.bind(performance);
+      Object.defineProperty(performance, 'now', { value: () => now() + 5_500 });
+    });
+    await route.continue();
+  }, { times: 1 });
+  await page.route(`**/api/rooms/${code}/sync`, async route => {
+    elapse(1_800);
+    await route.continue();
+  }, { times: 1 });
+  await page.goto(url);
+  const control = page.locator('.night-action[data-action=match-control]');
+  const timer = page.locator('[data-night-action-clock]');
+  await timer.filter({ hasText: '操作时间已到' }).waitFor();
+  assert.equal(await control.isDisabled(), true);
+
+  await control.click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('radio', { name: '跳过', exact: true }).check();
+  const accepted = page.waitForResponse(response => response.url().endsWith('/action'));
+  await dialog.getByRole('button', { name: '确认', exact: true }).click();
+  assert.equal((await accepted).status(), 200);
 });

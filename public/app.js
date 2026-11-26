@@ -109,7 +109,8 @@ function syncNightActionClock(match, requestStartedAt) {
   const current = nightActionClock;
   nightActionClock = {
     deadline, window: match.window,
-    expiresAt: current?.deadline === deadline && current.window === match.window ? Math.min(current.expiresAt, expiresAt) : expiresAt,
+    // The largest lower bound is the closest conservative estimate for this deadline.
+    expiresAt: current?.deadline === deadline && current.window === match.window ? Math.max(current.expiresAt, expiresAt) : expiresAt,
   };
   // The server sample changes on each poll. Keep the rendered snapshot stable.
   delete timer.serverNow;
