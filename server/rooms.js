@@ -445,7 +445,8 @@ export function createRooms(store, clock = Date.now, matchRules) {
               roomError(409, 'SPECTATORS_FULL', '观战人数已满。');
             }
           } else {
-            if (status.full || room.guests.filter(item => !item.spectator && !item.bot).length >= 24) {
+            const playerSessionLimit = Math.max(24, seatsIn(room));
+            if (status.full || room.guests.filter(item => !item.spectator && !item.bot).length >= playerSessionLimit) {
               roomError(409, 'FULL', '房间已满。');
             }
             assertLobby(room);

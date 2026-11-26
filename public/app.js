@@ -1,6 +1,6 @@
 import {
   boards, customBoardName, customLineupError, customRoleGroups, customRoles, customRuleOptions, defaultCustomRules,
-  defaultSheriffMode, nightSchedules, presetSeatCount, repeatableRole, roles, sheriffModes, thiefDraw,
+  defaultSheriffMode, nightSchedules, repeatableRole, roles, sheriffModes, thiefDraw,
 } from './boards.js';
 import { choiceLabel, exileVote, matchCommand, matchHistory, matchLabel, matchPanel, timerText, voteDetail } from './match.js';
 import { createNightVoice } from './night-voice.js';
@@ -310,9 +310,8 @@ function customOptions() {
     const repeatable = repeatableRole(id);
     const active = count > 0;
     const label = repeatable ? `添加${name}（已选${count}张）` : name;
-    const disabled = customLineup.length >= presetSeatCount && (repeatable || !active);
     return `<div class="role-choice${active ? ' selected' : ''}">
-      <button type="button" class="role-pick" data-action="custom-role" data-value="${id}" aria-label="${label}"${repeatable ? '' : ` aria-pressed="${active}"`}${disabled ? ' disabled' : ''}>${name}${repeatable && active ? ` ×${count}` : ''}</button>
+      <button type="button" class="role-pick" data-action="custom-role" data-value="${id}" aria-label="${label}"${repeatable ? '' : ` aria-pressed="${active}"`}>${name}${repeatable && active ? ` ×${count}` : ''}</button>
       ${repeatable && active ? `<button type="button" class="role-decrease" data-action="custom-remove" data-value="${id}" aria-label="减少${name}">−</button>` : ''}
     </div>`;
   }).join('')}</div>`;

@@ -87,7 +87,6 @@ export function repeatableRole(role) {
 export function customLineupError(lineup, victoryMode = defaultCustomRules.victoryMode) {
   if (!Array.isArray(lineup)) return '请选择自定义角色。';
   if (lineup.length < 3) return '自定义配置至少需要 3 人。';
-  if (lineup.length > presetSeatCount) return `自定义配置最多支持 ${presetSeatCount} 人。`;
   const counts = new Set();
   for (const role of lineup) {
     if (!customRoles.includes(role)) return '配置中有不支持的角色。';

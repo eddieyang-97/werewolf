@@ -6,7 +6,7 @@ import { createApp } from '../server/http.js';
 import { matchRules } from '../server/match-rules.js';
 import { openStore } from '../server/store.js';
 
-test('a solo host can manage bots, deal, and reach the first sheriff election on a phone-sized screen', { timeout: 45_000 }, async t => {
+test('a solo host can create a 16-seat room, manage bots, and reach the first sheriff election on a phone-sized screen', { timeout: 45_000 }, async t => {
   const store = openStore(':memory:');
   const app = createApp(store, { matchRules }).listen(0, '127.0.0.1');
   t.after(async () => {
@@ -30,33 +30,33 @@ test('a solo host can manage bots, deal, and reach the first sheriff election on
     await button('好人阵营').click();
     await role('seer').click();
     await role('hunter').click();
-    for (let index = 0; index < 9; index++) await role('villager').click();
+    for (let index = 0; index < 13; index++) await role('villager').click();
     await button('确认创建').click();
     await page.getByLabel('你的昵称').fill('单人测试');
     await dialog.getByRole('button', { name: '确认创建' }).click();
     await manage.click();
     await button('添加机器人').click();
-    await dialog.getByRole('combobox').selectOption('7');
+    await dialog.getByRole('combobox').selectOption('16');
     await button('确定').click();
-    const seatSeven = page.locator('.seat').nth(6);
-    await seatSeven.filter({ hasText: '机器人' }).waitFor();
+    const lastSeat = page.locator('.seat').nth(15);
+    await lastSeat.filter({ hasText: '机器人' }).waitFor();
     assert.equal(await botSeats.count(), 1);
-    assert.equal(await seatSeven.locator('.seat-avatar').innerText(), '🤖');
+    assert.equal(await lastSeat.locator('.seat-avatar').innerText(), '🤖');
 
     await manage.click();
     assert.equal(await button('转交房主').isDisabled(), true);
     await dialog.getByRole('button', { name: '移除', exact: true }).click();
     await button('确认移除').click();
-    await seatSeven.filter({ hasText: '空座位' }).waitFor();
+    await lastSeat.filter({ hasText: '空座位' }).waitFor();
     await button('用机器人填满空位').click();
-    await page.getByText('12 / 12 已入座', { exact: true }).waitFor();
-    assert.equal(await botSeats.count(), 11);
+    await page.getByText('16 / 16 已入座', { exact: true }).waitFor();
+    assert.equal(await botSeats.count(), 15);
     assert.equal(await page.locator('.seat.mine .seat-name').innerText(), '1:单人测试');
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), 390);
 
     await button('发放身份').click();
     await button('确认发放').click();
-    await page.getByText('11 / 12 已准备', { exact: true }).waitFor();
+    await page.getByText('15 / 16 已准备', { exact: true }).waitFor();
     await button('查看我的身份').click();
     await button('我知道了').click();
     await button('准备就绪').click();
@@ -77,7 +77,7 @@ test('a solo host can manage bots, deal, and reach the first sheriff election on
     }
     await election.click();
     await button('不上警').waitFor();
-    assert.equal(await botSeats.count(), 11);
+    assert.equal(await botSeats.count(), 15);
   } finally {
     await browser.close();
   }

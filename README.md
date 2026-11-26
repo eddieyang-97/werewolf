@@ -1,6 +1,6 @@
 # Werewolf
 
-Mobile Werewolf for friends. Create an account-free room, invite friends, and play a 12-player preset or a 3–12-player custom lineup from the first night through rematch. Each phone receives its own roles and actions. Players can reconnect to their seat and view completed ballots in the match history. See [requirements](REQUIREMENTS.md) for the lineups and rules.
+Mobile Werewolf for friends. Create an account-free room, invite friends, and play a 12-player preset or a custom lineup of at least three players from the first night through rematch. Each phone receives its own roles and actions. Players can reconnect to their seat and view completed ballots in the match history. See [requirements](REQUIREMENTS.md) for the lineups and rules.
 
 ## Local development
 
