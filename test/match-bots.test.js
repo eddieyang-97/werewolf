@@ -57,9 +57,10 @@ test('bots use legal swaps and ballots without taking over a human wolf or speak
       play('finish-speech');
     } else {
       advance();
+      now += 3_600;
       assert.equal(advance(), false);
       assert.equal(publicSpeaker(match), speaker);
-      now += 2_000;
+      now += 2_400;
       assert.equal(advance(limit => limit - 1), true);
       botSpeeches++;
     }

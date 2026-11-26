@@ -3,8 +3,8 @@ import { executeMatchChoice, seatActions } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
 
-const SPEECH_DELAY = 1_500;
-const SHERIFF_VOTE_DELAY = 6_000;
+// Leave time for the normal 1.8-second poll and a player's confirmation.
+const HUMAN_RESPONSE_DELAY = 6_000;
 const INTERRUPT_ODDS = 32;
 const interrupts = new Set(['withdraw', 'self-destruct', 'duel']);
 
@@ -12,10 +12,10 @@ function botDelay(match, bots) {
   if (match.phase === 'sheriff-vote' || match.phase === 'sheriff-runoff-vote') {
     const pending = pendingVoters(match.election.ballot);
     // Base the pause on the ballot, so its timing never signals who can self-destruct.
-    if (pending.length && pending.every(seat => bots.some(bot => bot.seat === seat))) return SHERIFF_VOTE_DELAY;
+    if (pending.length && pending.every(seat => bots.some(bot => bot.seat === seat))) return HUMAN_RESPONSE_DELAY;
   }
   const speaker = publicSpeaker(match);
-  return bots.some(bot => bot.seat === speaker) ? SPEECH_DELAY : 0;
+  return bots.some(bot => bot.seat === speaker) ? HUMAN_RESPONSE_DELAY : 0;
 }
 
 function randomChoice(action, choose) {

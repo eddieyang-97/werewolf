@@ -206,8 +206,8 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 
 - Before the deal, the host can add a robot to a chosen empty seat, fill all empty seats in one tap, or remove a robot. Show which seats are bots. Support every preset and custom lineup, including rooms with several human players.
 - Deal and save bots as ordinary players. They automatically confirm readiness. Each bot chooses randomly from its seat's legal actions and targets. It can act or pass on an optional interruption once per action window, including when another seat is speaking. When a human shares a wolf action with bots, leave that choice to the human.
-- Bots finish their own speaking turns automatically. Human players keep control of their own turns, and a human host controls dealing, starting, public phase changes and rematches. Robots retain their seats for the next deal.
-- When only bots have ballots pending in a sheriff vote or runoff, leave the ballot open briefly before bots act so humans can use legal interruptions. Apply the same pause regardless of hidden roles.
+- Bots finish their own speaking turns automatically after a six-second pause so humans can see the turn and use legal interruptions. The host can still advance a speech manually. Human players keep control of their own turns, and a human host controls dealing, starting, public phase changes and rematches. Robots retain their seats for the next deal.
+- When only bots have ballots pending in a sheriff vote or runoff, apply the same pause before bots act. These pauses apply regardless of hidden roles.
 
 ## Later candidates
 

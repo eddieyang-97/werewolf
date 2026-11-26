@@ -10,8 +10,10 @@ import { Client } from 'pg';
 import { boards, thiefDraw } from '../public/boards.js';
 import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
+import { executeMatchChoice, startMatch } from '../server/match-controller.js';
 import { matchRules } from '../server/match-rules.js';
 import { openPostgresStore } from '../server/postgres-store.js';
+import { tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
 const postgresTestUrl = process.env.WEREWOLF_TEST_POSTGRES_URL;
@@ -66,9 +68,10 @@ async function withServer(open, run) {
     }
   }
   try {
-    await run(async options => {
+    await run(async (options, seed) => {
       await close();
       store = await open();
+      await seed?.(store);
       app = createApp(store, options);
       app.listen(0, '127.0.0.1');
       await once(app, 'listening');
@@ -275,6 +278,59 @@ describe('room HTTP', { concurrency: 4 }, () => {
     now += 24 * 60 * 60 * 1000;
     assert.equal((await roomApi(base, code, host, 'resume', {}, 404)).code, 'ROOM_GONE');
   }, { postgres: true, persistent: true });
+
+  roomTest('a human player has time to see and interrupt the first bot runoff speech', async start => {
+    let now = Date.now();
+    const players = Array.from({ length: 2 }, browser);
+    const [host, wolf] = players;
+    const lineup = ['villager', 'wolf', 'villager', 'villager'];
+    const guests = lineup.map((role, index) => {
+      const participant = players[index];
+      return {
+        id: randomUUID(), name: `玩家${index + 1}`, seat: index + 1,
+        ...(participant ? { key: tokenKey(participant.token), tab: participant.tab, lastSeen: now, receipts: [] } : { bot: true }),
+        assignment: { role }, revealed: true, acknowledged: true,
+      };
+    });
+    const code = 'ABCDEF';
+    const room = {
+      code, board: 'custom', lineup, sheriffMode: 'none', hostId: guests[0].id, guests, dealt: true,
+      customRules: { victoryMode: 'town', firstNightKnife: 'disabled' }, expiresAt: now + 60_000,
+    };
+    startMatch(room, matchRules);
+    const command = (match, kind, choice) => ({ type: 'match-choice', matchId: match.matchId ?? match.id, window: match.window, kind, choice });
+    const play = (seat, kind, choice) =>
+      assert.ok(executeMatchChoice(room, guests[seat - 1], command(room.match, kind, choice), matchRules, now));
+    play(2, 'night-action', 'confirm');
+    play(1, 'publish-night');
+    while (room.match.phase === 'discussion') play(1, 'finish-speech');
+    play(1, 'open-exile');
+    play(2, 'vote', 3);
+    play(3, 'vote', 4);
+    play(4, 'vote', 3);
+
+    const base = await start({ matchRules, clock: () => now }, store => store.create(room, guests[0].key, now));
+    const sync = async player => (await roomApi(base, code, player, 'sync')).match;
+    const hostBallot = await sync(host);
+    assert.equal((await sync(wolf)).phase, 'exile-vote');
+    now += 100;
+    const opened = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    assert.equal(opened.phase, 'exile-runoff-speech');
+    assert.ok([3, 4].includes(opened.speaker));
+
+    let seen;
+    for (const elapsed of [1_700, 1_800]) {
+      now += elapsed;
+      seen = await sync(wolf);
+      assert.equal(seen.phase, 'exile-runoff-speech');
+      assert.equal(seen.speaker, opened.speaker);
+      assert.equal(seen.window, opened.window);
+      assert.ok(seen.actions.some(entry => entry.kind === 'self-destruct'));
+    }
+    now += 1_000;
+    const interrupted = (await action(base, code, wolf, command(seen, 'self-destruct'))).room.match;
+    assert.ok(interrupted.history.some(event => event.kind === 'explosion' && event.seat === 2));
+  }, { postgres: true });
 
   roomTest('host transfer preserves seats and moves force-end authority across retry and restart', async start => {
     const options = { matchRules };
