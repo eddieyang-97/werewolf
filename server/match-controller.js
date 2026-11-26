@@ -10,7 +10,7 @@ import { createMatch, finishMatch, livingPlayers, playerAt } from './match-state
 import { matchView, publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
 import {
-  applyNightAction, beginNight, currentNightCue, fixedChoices, mechanicalNightOrder, nightChoiceDuration, nightChoiceExpired,
+  applyNightAction, beginNight, currentNightCue, fixedChoices, mechanicalNightOrder, nightChoiceExpired,
 } from './night-actions.js';
 import { nightCallOrder } from '../public/boards.js';
 
@@ -50,7 +50,7 @@ function recoveryControls(match) {
   return actions;
 }
 
-function controls(match, player, host, rules) {
+function controls(match, player, host, rules, now) {
   const actions = [];
   if (!player) return actions;
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
@@ -75,14 +75,16 @@ function controls(match, player, host, rules) {
 
   switch (phase) {
     case 'night': {
-      if (!night.step?.seats.includes(seat)) break;
+      if (!night.step?.seats.includes(seat) || nightChoiceExpired(match, now)) break;
       const { kind } = night.step;
       const fixed = fixedChoices(match, player, kind);
       const options = fixed ?? rules.nightChoices(match, player, kind);
       if (options.length) add('night-action', options, {
         action: kind,
         ...(kind === 'swap' ? { multiple: true } : {}),
-        ...(match.nightNarration ? { duration: nightChoiceDuration } : {}),
+        ...(match.nightNarration ? { nightTimer: night.cueClock?.deadline !== undefined
+          ? { deadline: night.cueClock.deadline, serverNow: now }
+          : night.cueClock ? { remaining: night.cueClock.remaining } : { waiting: true } } : {}),
       });
       break;
     }
@@ -132,14 +134,14 @@ function controls(match, player, host, rules) {
   return actions;
 }
 
-export function controllerView(match, seat, host, rules) {
-  const view = matchView(match, seat);
+export function controllerView(match, seat, host, rules, now = Date.now()) {
+  const view = matchView(match, seat, now);
   if (host && match.nightNarration && !match.winner) {
     view.nightNarration = true;
     if (match.phase === 'night') view.nightCue = currentNightCue(match);
   }
   const player = playerAt(match, seat);
-  const actions = controls(match, player, host, rules);
+  const actions = controls(match, player, host, rules, now);
   const hostActions = host && player ? recoveryControls(match) : [];
   const ballot = getBallot(match);
   if (host && ballot) {
@@ -212,10 +214,9 @@ function applyChoice(room, player, kind, choice, rules, now) {
 export function executeMatchChoice(room, guest, command, rules, now) {
   const { match } = room;
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
-  if (command.kind === 'night-action' && nightChoiceExpired(match, now)) return false;
   const player = playerAt(match, guest.seat);
   const host = guest.id === room.hostId;
-  const action = controls(match, player, host, rules).find(entry => entry.kind === command.kind)
+  const action = controls(match, player, host, rules, now).find(entry => entry.kind === command.kind)
     ?? (host && player ? recoveryControls(match).find(entry => entry.kind === command.kind) : undefined);
   if (!action || !validChoice(action, command.choice)) return false;
   if (command.kind === 'rematch') {

@@ -47,6 +47,7 @@ let sequence = 0;
 let retryAction;
 let noticeTimer;
 let matchClock;
+let nightActionClock;
 let roomError = '';
 let showingHistory = false;
 let voteClosure;
@@ -63,6 +64,16 @@ const nightVoice = createNightVoice({
   },
 });
 
+function canObserveNightCue() {
+  if (document.hidden) return false;
+  if (nightVoiceOn) return true;
+  if (showingHistory || dialog.open) return false;
+  const call = root.querySelector('.night-call strong');
+  if (!call) return false;
+  const { top, bottom } = call.getBoundingClientRect();
+  return top >= 0 && bottom <= window.innerHeight;
+}
+
 function updateNightVoice() {
   const match = lobby?.match;
   const cue = lobby?.self.host && match?.nightCue;
@@ -71,7 +82,7 @@ function updateNightVoice() {
     nightVoice.stop();
     return;
   }
-  if (document.hidden) return;
+  if (!canObserveNightCue()) return;
   if (seenNightCue && seenNightCue.matchId === cue.matchId && seenNightCue.round === cue.round && seenNightCue.role === cue.role) return;
   seenNightCue = cue;
   if (nightVoiceOn) nightVoice.speakRole(cue.role);
@@ -79,6 +90,50 @@ function updateNightVoice() {
 
 function interruptNightVoice() {
   if (nightVoice.stop()) seenNightCue = undefined;
+}
+
+function timedNightAction(match) {
+  return match?.actions?.find(action => action.nightTimer);
+}
+
+function syncNightActionClock(match) {
+  const timer = timedNightAction(match)?.nightTimer;
+  if (timer?.deadline === undefined) {
+    nightActionClock = undefined;
+    return;
+  }
+  const { deadline, serverNow } = timer;
+  const expiresAt = performance.now() + deadline - serverNow;
+  const current = nightActionClock;
+  nightActionClock = {
+    deadline, window: match.window,
+    expiresAt: current?.deadline === deadline && current.window === match.window ? Math.min(current.expiresAt, expiresAt) : expiresAt,
+  };
+  // The server sample changes on each poll. Keep the rendered snapshot stable.
+  delete timer.serverNow;
+}
+
+function nightActionRemaining(timer) {
+  if (timer.deadline !== undefined) return Math.max(0, nightActionClock.expiresAt - performance.now());
+  return timer.remaining;
+}
+
+function refreshNightAction() {
+  const match = lobby?.match;
+  const timer = timedNightAction(match)?.nightTimer;
+  const form = dialog.open ? dialog.querySelector('[data-timed-night-action]') : null;
+  const remaining = timer && nightActionRemaining(timer);
+  if (form && (!timer || remaining === 0 || form.elements.command.value !== matchCommand(match, 'night-action'))) {
+    dialog.close();
+  }
+  if (!timer) return;
+  const text = timer.waiting ? '等待播报结束' : remaining === 0 ? '操作时间已到'
+    : `剩余 ${timerText(remaining)}${timer.deadline === undefined ? '（暂停）' : ''}`;
+  for (const clock of [root.querySelector('[data-night-action-clock]'), form?.querySelector('[data-night-action-clock]')]) {
+    if (clock && clock.textContent !== text) clock.textContent = text;
+  }
+  const button = root.querySelector('.night-action[data-action="match-control"]');
+  if (button) button.disabled = !connected || remaining === 0;
 }
 
 function read(key) {
@@ -376,12 +431,16 @@ function render() {
   root.innerHTML = historyOpen ? matchHistory(lobby.match.history, button) : contents[screen]();
   clearInterval(matchClock);
   const timer = root.querySelector('[data-match-deadline]');
-  if (timer) {
+  refreshNightAction();
+  if (timer || timedNightAction(lobby?.match)) {
     matchClock = setInterval(() => {
-      const remaining = Number(timer.dataset.matchDeadline) - Date.now();
-      const text = timerText(remaining);
-      if (timer.textContent !== text) timer.textContent = text;
-      if (remaining <= 0) clearInterval(matchClock);
+      if (timer) {
+        const remaining = Number(timer.dataset.matchDeadline) - Date.now();
+        const text = timerText(remaining);
+        if (timer.textContent !== text) timer.textContent = text;
+        if (remaining <= 0) clearInterval(matchClock);
+      }
+      refreshNightAction();
     }, 250);
   }
 }
@@ -510,6 +569,7 @@ function roomRequest(operation, body = {}, options = {}) {
 }
 
 function applyLobby(next) {
+  syncNightActionClock(next.match);
   const changed = !connected || JSON.stringify(next) !== JSON.stringify(lobby);
   if (lobby && next.self.spectator !== lobby.self.spectator) {
     dialog.close();
@@ -527,11 +587,11 @@ function applyLobby(next) {
   write(credentialKey(code), credential);
   write(pendingJoinKey(code), null);
   write(recentKey, code);
-  updateNightVoice();
   if (changed) {
     render();
     refreshVoteClosure();
   }
+  updateNightVoice();
 }
 
 function handleRoomError(error) {
@@ -581,7 +641,8 @@ async function poll() {
   pollInFlight = period;
   try {
     const body = { pendingAvatarId: edit.id };
-    if (connected && !document.hidden && seenNightCue) {
+    if (connected && canObserveNightCue()) updateNightVoice();
+    if (connected && canObserveNightCue() && seenNightCue) {
       body.seenNightCue = seenNightCue;
       body.nightCuePlaybackComplete = !nightVoice.isSpeaking();
     }
@@ -614,6 +675,7 @@ function leaveConnection() {
 async function go(path, replace = false) {
   nightVoiceOn = false;
   seenNightCue = undefined;
+  nightActionClock = undefined;
   nightVoice.stop();
   if (screen === 'room' && path.replace(/\/$/, '') !== `/room/${code}`) leaveConnection();
   clearTimeout(pollTimer);
@@ -740,6 +802,10 @@ async function submit(event) {
   }
   if (form.dataset.form === 'host-transfer') return action('host-transfer', { target: data.get('choice') });
   if (form.dataset.form === 'match-choice') {
+    if (form.hasAttribute('data-timed-night-action')) {
+      refreshNightAction();
+      if (!dialog.open) return;
+    }
     const command = JSON.parse(data.get('command'));
     const choices = data.getAll('choice').map(value => JSON.parse(value));
     if (form.hasAttribute('data-swap') && choices.length !== 0 && choices.length !== 2) {
@@ -878,6 +944,7 @@ function openMatchControl(command) {
   }
   const control = actions.find(entry => entry.kind === requested.kind);
   if (!control) return;
+  if (control.nightTimer && nightActionRemaining(control.nightTimer) === 0) return;
   if (control.kind === 'close-vote') return showVoteClosure(command);
   const label = matchLabel(control);
   if (control.options) {
@@ -888,12 +955,13 @@ function openMatchControl(command) {
     const knife = control.action === 'witch' && Object.hasOwn(self, 'wolfTarget')
       ? `<p>${self.wolfTarget ? `狼刀目标：${self.wolfTarget}号` : '今晚没有普通狼刀目标。'}</p>` : '';
     const duel = control.kind === 'duel' ? '<p>决斗会公开。选中狼人则对方出局，选中好人则你出局。</p>' : '';
-    const timed = control.duration ? `<p>播报结束后有 ${control.duration / 1000} 秒操作时间。超时后，系统会跳过可选操作或代为选择必选项。</p>` : '';
-    return showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}>
+    const timed = control.nightTimer ? '<p data-night-action-clock></p><p>超时后，系统会跳过可选操作或代为选择必选项。</p>' : '';
+    showDialog(label, `<form class="stack" data-form="match-choice" data-multiple="${Boolean(control.multiple)}"${swap ? ' data-swap' : ''}${timed ? ' data-timed-night-action' : ''}>
       <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${timed}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
       ${swap ? '<p class="choice-error" role="alert"></p>' : ''}
       <button type="submit" class="button primary">确认</button>
     </form>`);
+    return refreshNightAction();
   }
   const warnings = {
     'self-destruct': '自爆后你将出局。', 'publish-night': '向所有玩家公布昨夜信息？',

@@ -134,7 +134,7 @@ test('a no-knife first night calls the wolves for private recognition and preser
   assertCue(opening, 1, 'wolf');
   assert.equal(opening.self.teammates, undefined);
   assert.deepEqual(poll(wolf).actions, [{
-    kind: 'night-action', action: 'wolf-recognition', options: ['confirm'], duration: nightChoiceDuration,
+    kind: 'night-action', action: 'wolf-recognition', options: ['confirm'], nightTimer: { waiting: true },
   }]);
   assert.throws(() => play(wolf, 'night-action', host.record.seat), { code: 'MATCH_ACTION' });
   play(wolf, 'night-action', 'confirm');
@@ -176,15 +176,23 @@ test('an offline unrelated seat pauses the window, and an unanswered required ch
 
   poll(host, cue);
   elapse(8_000);
+  const running = poll(seer).actions[0].nightTimer;
+  assert.equal(running.deadline - running.serverNow, nightChoiceDuration - 8_000);
+  assert.equal(poll(villager).actions, undefined);
   disconnect(villager);
   elapse(nightChoiceDuration * 3, players.filter(player => player !== villager));
   assertCue(poll(host, cue), 1, 'seer');
   assert.equal(poll(seer).window, window);
+  assert.deepEqual(poll(seer).actions[0].nightTimer, { remaining: nightChoiceDuration - 8_000 });
   poll(villager);
   poll(host, cue);
   elapse(nightChoiceDuration - 8_000 - 1);
   assertCue(poll(host, cue), 1, 'seer');
+  const finalTick = poll(seer).actions[0].nightTimer;
+  assert.equal(finalTick.deadline - finalTick.serverNow, 1);
   elapse(1);
+  assert.equal(poll(seer).actions, undefined);
+  assert.equal(poll(seer).window, undefined);
   assert.throws(() => act(seer, 'match-choice', { matchId, window, kind: 'night-action', choice: action.options[0] }),
     { code: 'MATCH_ACTION' });
   const dawn = poll(host, cue);

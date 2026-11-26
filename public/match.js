@@ -98,6 +98,7 @@ export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, s
     ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
     ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
     ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}
+    ${actions.some(action => action.nightTimer) ? '<p data-night-action-clock></p>' : ''}
     ${seatVote ? '<p class="vote-instruction">请点击可投票的座位</p>' : ''}
     <div class="match-actions">${seatVote?.options.includes(null) ? button('弃票', 'confirm-vote', {
       value: matchCommand(match, 'vote', null), disabled: !connected,

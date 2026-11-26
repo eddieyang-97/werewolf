@@ -201,7 +201,7 @@ function snapshot(room, viewer, now, matchRules) {
     result.canStart = status.full && seated.every(guest => isOnline(guest, now));
   }
   if (matchRules && room.match) {
-    result.match = controllerView(room.match, viewer.seat, viewer.id === room.hostId, matchRules);
+    result.match = controllerView(room.match, viewer.seat, viewer.id === room.hostId, matchRules, now);
     if (viewer.id === room.hostId && !room.match.winner) result.match.canAbandon = room.match.id;
   }
   return result;
