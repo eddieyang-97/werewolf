@@ -11,7 +11,7 @@ import { createRooms, tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
 // Start from a ready, deterministically dealt room. Each request uses the seat's own session.
-function table(t, board, lineup, { persistent = false, customRules } = {}) {
+function table(t, board, lineup, { persistent = false, customRules, bots = [] } = {}) {
   let now = Date.now();
   const code = 'ABCDEF';
   const dir = persistent ? mkdtempSync(join(tmpdir(), 'werewolf-narration-')) : null;
@@ -26,7 +26,7 @@ function table(t, board, lineup, { persistent = false, customRules } = {}) {
   function guest(seat, assignment) {
     const token = randomBytes(32).toString('hex');
     return { token, record: { id: randomUUID(), name: seat ? `玩家${seat}` : '观众', seat,
-      key: tokenKey(token), tab: randomUUID(), lastSeen: now, receipts: [],
+      ...(bots.includes(assignment?.role) ? { bot: true } : { key: tokenKey(token), tab: randomUUID(), lastSeen: now, receipts: [] }),
       ...(seat ? { assignment, revealed: true, acknowledged: true } : { spectator: true }) } };
   }
   const players = buildDeck(board, () => 1, lineup).map((assignment, i) => guest(i + 1, assignment));
@@ -51,7 +51,7 @@ function table(t, board, lineup, { persistent = false, customRules } = {}) {
       const tick = Math.min(milliseconds, 5_000);
       now += tick;
       milliseconds -= tick;
-      for (const player of online) poll(player);
+      for (const player of online) if (!player.record.bot) poll(player);
     }
   }
   function nextCue(seen, narrator = host) {
@@ -67,7 +67,8 @@ function table(t, board, lineup, { persistent = false, customRules } = {}) {
     store = openStore(path);
     rooms = createRooms(store, () => now, matchRules);
   }
-  return { players, host, role, spectator, act, poll, play, elapse, nextCue, restart, disconnect };
+  const state = () => store.room(code, now, room => ({ value: room.match }));
+  return { players, host, role, spectator, act, poll, play, elapse, nextCue, restart, disconnect, state };
 }
 
 function assertCue(view, round, role) {
@@ -162,6 +163,34 @@ test('late delivery and unfinished speech cannot use up the first cue window', t
   assertCue(poll(host, first), 1, 'guard');
   elapse(1);
   assertCue(poll(host, first), 1, 'wolf');
+});
+
+test('bots take their narrated turns without closing a cue or taking a shared choice from a human', t => {
+  const { host, role, act, poll, play, nextCue, state } = table(t, 'custom',
+    ['guard', 'wolf', 'wolfKing', 'seer', 'hunter', 'villager'], { bots: ['guard', 'wolf', 'seer'] });
+  const wolfKing = role('wolfKing');
+  const guard = act(host, 'match-start', { nightNarration: true });
+  assertCue(guard, 1, 'guard');
+  assert.equal(state().night.step, null); // The bot acted in the start transaction.
+
+  const wolf = nextCue(guard);
+  assertCue(wolf, 1, 'wolf');
+  assert.equal(poll(wolfKing).actions[0].action, 'knife');
+  play(wolfKing, 'night-action', null);
+  assertCue(poll(host), 1, 'wolf');
+
+  const seer = nextCue(wolf);
+  assertCue(seer, 1, 'seer');
+  assert.equal(state().night.step, null); // The newly opened cue was processed in the same sync.
+  const botSeer = state().players.find(player => player.seat === role('seer').record.seat);
+  assert.equal(botSeer.privateEvents.length, 1);
+  assert.equal(botSeer.privateEvents[0].kind, 'seer');
+  assert.deepEqual(seer.self.inspections, []);
+
+  const hunter = nextCue(seer);
+  assertCue(hunter, 1, 'hunter');
+  play(role('hunter'), 'night-action', 'confirm');
+  assert.equal(nextCue(hunter).phase, 'dawn');
 });
 
 test('an offline unrelated seat pauses the window, and an unanswered required choice falls back at expiry', t => {

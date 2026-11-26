@@ -186,3 +186,26 @@ test('an eligible player sees the live and paused timer and the dialog closes at
   await page.locator('dialog').waitFor({ state: 'hidden' });
   assert.equal(await control.isDisabled(), true);
 });
+
+test('resuming with an expired response does not reopen the private action', { timeout: 30_000 }, async t => {
+  const { code, host, guard, rooms, elapse, playerPage, url } = await game(t);
+  const { room: { match: { nightCue } } } = rooms.action(code, host.token, host.guest.tab, {
+    id: randomUUID(), type: 'match-start', nightNarration: true,
+  });
+  rooms.sync(code, host.token, host.guest.tab, { seenNightCue: nightCue, nightCuePlaybackComplete: true });
+  elapse(nightChoiceDuration - 2_000);
+  const page = await playerPage(guard);
+  await page.route(`**/api/rooms/${code}/resume`, async route => {
+    const response = await route.fetch();
+    const { deadline, serverNow } = (await response.json()).match.actions[0].nightTimer;
+    assert.equal(deadline - serverNow, 2_000);
+    elapse(2_200);
+    await new Promise(resolve => setTimeout(resolve, 2_200));
+    await route.fulfill({ response });
+  }, { times: 1 });
+  await page.goto(url);
+  const control = page.locator('.night-action[data-action=match-control]');
+  await control.waitFor();
+  assert.equal(await control.isDisabled(), true);
+  assert.equal(await page.locator('[data-night-action-clock]').textContent(), '操作时间已到');
+});

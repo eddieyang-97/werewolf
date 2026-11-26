@@ -4,6 +4,7 @@ import {
   boards, customLineupError, customRuleOptions, defaultCustomRules, defaultSheriffMode, presetSeatCount, sheriffModes,
 } from '../public/boards.js';
 import { buildDeck, shuffle } from './deal.js';
+import { progressBots } from './match-bots.js';
 import { abandonMatch, controllerView, executeMatchChoice, startMatch } from './match-controller.js';
 import { publicSpeaker } from './match-view.js';
 import { pauseNightCue, progressNightCue } from './night-actions.js';
@@ -86,7 +87,7 @@ function seesTab(guest, tab) {
 }
 
 function isOnline(guest, now) {
-  return guest && guest.lastSeen !== null && now - guest.lastSeen < ONLINE_WINDOW;
+  return guest && (guest.bot === true || (guest.lastSeen !== null && now - guest.lastSeen < ONLINE_WINDOW));
 }
 
 function nightPresenceCutoff(room, now) {
@@ -141,6 +142,7 @@ function presentGuest(guest, room, now) {
     connected: isOnline(guest, now),
     host: guest.id === room.hostId,
     acknowledged: guest.acknowledged,
+    ...(guest.bot ? { bot: true } : {}),
     ...(guest.spectator ? { spectator: true } : {}),
   };
 }
@@ -215,6 +217,21 @@ function assertLobby(room) {
   if (room.dealt) roomError(409, 'LOCKED', '身份已发放，座位已锁定。');
 }
 
+function assertSeatAvailable(room, seat, guestId) {
+  if (!Number.isInteger(seat) || seat < 1 || seat > seatsIn(room)) {
+    roomError(400, 'SEAT', '请选择有效座位。');
+  }
+  if (room.guests.some(guest => guest.seat === seat && guest.id !== guestId)) {
+    roomError(409, 'OCCUPIED', '这个座位已被占用。');
+  }
+}
+
+function addBot(room, seat) {
+  let number = seat;
+  while (room.guests.some(guest => guest.name === `机器人${number}`)) number++;
+  room.guests.push({ id: randomUUID(), name: `机器人${number}`, seat, bot: true, revealed: false, acknowledged: false });
+}
+
 function approveReplacement(room, command, now) {
   const spectator = room.guests.find(guest => guest.spectator && guest.replacement && guest.replacement.id === command.target);
   const target = spectator?.replacement && replacementTarget(room, spectator.replacement.target, now);
@@ -252,22 +269,31 @@ function applyAction(room, guest, command, now, matchRules) {
     case 'host-transfer': {
       assertHost(room, guest);
       const target = room.guests.find(item => item.id === command.target && item.id !== guest.id && item.seat !== null);
-      if (!isOnline(target, now)) roomError(409, 'HOST_TARGET', '请选择另一位在线且已入座的玩家。');
+      if (target?.bot || !isOnline(target, now)) roomError(409, 'HOST_TARGET', '请选择另一位在线且已入座的玩家。');
       clearReplacementRequests(room, target.id);
       pauseNightCue(room.match, now);
       room.hostId = target.id;
       return;
     }
-    case 'seat': {
+    case 'add-bot':
+      assertHost(room, guest);
       assertLobby(room);
-      if (!Number.isInteger(command.seat) || command.seat < 1 || command.seat > seatsIn(room)) {
-        roomError(400, 'SEAT', '请选择有效座位。');
+      assertSeatAvailable(room, command.seat);
+      addBot(room, command.seat);
+      return;
+    case 'fill-bots':
+      assertHost(room, guest);
+      assertLobby(room);
+      if (guest.seat === null) roomError(409, 'HOST_UNSEATED', '请先入座再用机器人补满空位。');
+      for (let seat = 1; seat <= seatsIn(room); seat++) {
+        if (!room.guests.some(player => player.seat === seat)) addBot(room, seat);
       }
-      const occupant = room.guests.find(item => item.seat === command.seat);
-      if (occupant && occupant.id !== guest.id) roomError(409, 'OCCUPIED', '这个座位已被占用。');
+      return;
+    case 'seat':
+      assertLobby(room);
+      assertSeatAvailable(room, command.seat, guest.id);
       guest.seat = command.seat;
       return;
-    }
     case 'stand':
       assertLobby(room);
       guest.seat = null;
@@ -285,7 +311,7 @@ function applyAction(room, guest, command, now, matchRules) {
       if (targetIndex < 0) roomError(404, 'GUEST_GONE', '该玩家已离开。');
       const [removed] = room.guests.splice(targetIndex, 1);
       clearReplacementRequests(room, removed.id);
-      (room.revoked ??= []).push(removed.key);
+      if (!removed.bot) (room.revoked ??= []).push(removed.key);
       return;
     }
     case 'deal': {
@@ -295,7 +321,10 @@ function applyAction(room, guest, command, now, matchRules) {
       if (!canDeal) roomError(409, 'NOT_READY', '包括房主在内的所有玩家都入座并在线后才可发放身份。');
       const deck = shuffle(buildDeck(room.board, undefined, room.lineup));
       const seatedIds = new Set(seated.map(item => item.id));
-      for (const player of seated) player.assignment = deck[player.seat - 1];
+      for (const player of seated) {
+        player.assignment = deck[player.seat - 1];
+        if (player.bot) player.revealed = player.acknowledged = true;
+      }
       room.guests = room.guests.filter(item => seatedIds.has(item.id) || item.spectator);
       room.dealt = true;
       return;
@@ -416,7 +445,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
               roomError(409, 'SPECTATORS_FULL', '观战人数已满。');
             }
           } else {
-            if (status.full || room.guests.filter(item => !item.spectator).length >= 24) {
+            if (status.full || room.guests.filter(item => !item.spectator && !item.bot).length >= 24) {
               roomError(409, 'FULL', '房间已满。');
             }
             assertLobby(room);
@@ -453,15 +482,16 @@ export function createRooms(store, clock = Date.now, matchRules) {
           guest.tab = tab;
           refreshPresence(room, guest, now);
         }
-        const timerResumed = refreshMatchTimer(room, now);
         const cueChecked = !takeControl && guest.id === room.hostId && matchRules && nightCuePlaybackComplete === true
           && nightPresenceCutoff(room, now) === undefined
           && progressNightCue(room.match, seenNightCue, matchRules, now);
+        const botsChanged = room.match && matchRules && progressBots(room, matchRules, now);
+        const timerResumed = refreshMatchTimer(room, now);
         const value = snapshot(room, guest, now, matchRules);
         if (includeProfile || (validId(pendingAvatarId) && guest.avatarActionId === pendingAvatarId)) {
           value.profile = ownProfile(guest);
         }
-        return { changed: presenceChanged || timerChanged || timerResumed || cuePaused || cueChecked, value };
+        return { changed: presenceChanged || timerChanged || timerResumed || cuePaused || cueChecked || botsChanged, value };
       });
     },
 
@@ -476,7 +506,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         const cutoff = nightPresenceCutoff(room, now);
         if (cutoff !== undefined) pauseNightCue(room.match, cutoff);
         refreshMatchTimer(room, now);
-        if (!room.guests.some(item => isOnline(item, now))) room.expiresAt = now + RETENTION;
+        if (!room.guests.some(item => !item.bot && isOnline(item, now))) room.expiresAt = now + RETENTION;
         return { changed: true, value: {} };
       });
     },
@@ -512,6 +542,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         refreshPresence(room, guest, now);
         if (!previous) {
           applyAction(room, guest, command, now, matchRules);
+          if (room.match && matchRules) progressBots(room, matchRules, now);
           guest.receipts.push({ id: command.id, signature });
           if (guest.receipts.length > 64) guest.receipts.shift();
         }

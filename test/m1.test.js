@@ -10,8 +10,10 @@ import { Client } from 'pg';
 import { boards, thiefDraw } from '../public/boards.js';
 import { buildDeck } from '../server/deal.js';
 import { createApp } from '../server/http.js';
+import { executeMatchChoice, startMatch } from '../server/match-controller.js';
 import { matchRules } from '../server/match-rules.js';
 import { openPostgresStore } from '../server/postgres-store.js';
+import { tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
 const postgresTestUrl = process.env.WEREWOLF_TEST_POSTGRES_URL;
@@ -66,9 +68,10 @@ async function withServer(open, run) {
     }
   }
   try {
-    await run(async options => {
+    await run(async (options, seed) => {
       await close();
       store = await open();
+      await seed?.(store);
       app = createApp(store, options);
       app.listen(0, '127.0.0.1');
       await once(app, 'listening');
@@ -183,6 +186,152 @@ function photo(color) {
 }
 
 describe('room HTTP', { concurrency: 4 }, () => {
+  roomTest('only the host can seat or remove practice bots, with atomic seat claims and retry receipts', async start => {
+    let now = Date.now();
+    const base = await start({ clock: () => now });
+    const { code, host } = await setup(base, 'classic');
+    const guest = browser();
+    const act = (player, command, status) => action(base, code, player, command, status);
+    await roomApi(base, code, guest, 'join', { name: '机器人2' });
+    assert.equal((await act(guest, { type: 'fill-bots' }, 403)).code, 'HOST_ONLY');
+    assert.equal((await act(guest, { type: 'add-bot', seat: 2 }, 403)).code, 'HOST_ONLY');
+    assert.equal((await act(host, { type: 'add-bot', seat: 0 }, 400)).code, 'SEAT');
+    assert.equal((await act(host, { type: 'add-bot', seat: 1 }, 409)).code, 'OCCUPIED');
+
+    const add = { id: randomUUID(), type: 'add-bot', seat: 2 };
+    const { room } = await act(host, add);
+    const bot = room.seats[1];
+    assert.equal(bot.bot, true);
+    assert.notEqual(bot.name, room.waiting[0].name);
+    assert.deepEqual((await act(host, add)).room.seats, room.seats);
+    assert.equal((await act(host, { ...add, seat: 3 }, 409)).code, 'ACTION_ID');
+    assert.equal((await act(host, { type: 'host-transfer', target: bot.id }, 409)).code, 'HOST_TARGET');
+    assert.equal((await act(guest, { type: 'remove', target: bot.id }, 403)).code, 'HOST_ONLY');
+    assert.equal((await act(host, { type: 'remove', target: bot.id })).room.seats[1], null);
+
+    const claims = await Promise.all([
+      act(host, { type: 'add-bot', seat: 2 }, [200, 409]),
+      act(guest, { type: 'seat', seat: 2 }, [200, 409]),
+    ]);
+    assert.equal(claims.filter(result => result.code === 'OCCUPIED').length, 1);
+    assert.equal(claims.filter(result => result.room?.seats[1]).length, 1);
+    await act(guest, { type: 'seat', seat: 3 });
+    const { room: full } = await act(host, { type: 'fill-bots' });
+    assert.equal(full.canDeal, true);
+    assert.equal(full.seats.filter(player => player.bot).length, full.seats.length - 2);
+    assert.equal(full.seats[2].name, '机器人2');
+    assert.equal(new Set(full.seats.map(player => player.name)).size, full.seats.length);
+    const spectator = browser();
+    await roomApi(base, code, spectator, 'join', { name: '观众', spectate: true });
+    now += 20_000;
+    const watching = await roomApi(base, code, spectator, 'sync');
+    assert.equal(watching.seats[2].connected, false);
+    assert.ok(watching.seats.filter(player => player.bot).every(player => player.connected));
+    assert.equal((await act(spectator, { type: 'replacement-request', target: full.seats[1].id }, 409)).code,
+      'REPLACEMENT_UNAVAILABLE');
+  }, { postgres: true });
+
+  roomTest('a solo host can play with bots, resume and deal again with the same seats', async start => {
+    let now = Date.now();
+    const options = { matchRules, clock: () => now };
+    let base = await start(options);
+    const host = browser();
+    const { code } = await json(base, '/api/rooms', host, {
+      tab: host.tab, name: '房主', board: 'custom', lineup: ['wolfBeauty', 'villager', 'villager'],
+      customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
+    }, 201);
+    const act = (command, status) => action(base, code, host, command, status);
+    const sync = () => roomApi(base, code, host, 'sync');
+    const choose = (view, kind, choice) => act({ type: 'match-choice', matchId: view.matchId, window: view.window, kind, choice });
+    const { room: filled } = await act({ type: 'fill-bots' });
+    const { room: dealt } = await act({ type: 'deal' });
+    assert.equal(dealt.seats.length, 3);
+    assert.deepEqual(dealt.seats.map(player => player.acknowledged), [false, true, true]);
+    assert.ok(dealt.seats.every(player => !Object.hasOwn(player, 'assignment')));
+    assert.equal((await act({ type: 'add-bot', seat: 2 }, 409)).code, 'LOCKED');
+    assert.equal((await act({ type: 'fill-bots' }, 409)).code, 'LOCKED');
+    assert.equal((await act({ type: 'remove', target: filled.seats[1].id }, 409)).code, 'LOCKED');
+    await act({ type: 'reveal' });
+    assert.equal((await act({ type: 'acknowledge' })).room.canStart, true);
+    const { room: started } = await act({ type: 'match-start' });
+    let view = started.match;
+    while (view.phase === 'night') {
+      const night = view.actions.find(entry => entry.kind === 'night-action');
+      assert.ok(['wolf-recognition', 'charm'].includes(night?.action));
+      view = (await choose(view, 'night-action', night.options[0])).room.match;
+    }
+    assert.equal(view.phase, 'dawn');
+    const signup = (await choose(view, 'open-election')).room.match;
+    assert.equal(signup.phase, 'sheriff-signup');
+    base = await start(options);
+    assert.deepEqual((await sync()).match, signup);
+    const candidacy = { id: randomUUID(), type: 'match-choice', matchId: signup.matchId, window: signup.window, kind: 'candidacy', choice: true };
+    const afterSignup = await act(candidacy);
+    assert.notEqual(afterSignup.room.match.phase, 'sheriff-signup', 'each bot submitted its own candidacy');
+    assert.deepEqual(await act(candidacy), afterSignup);
+    const ended = (await act({ type: 'match-abandon', matchId: signup.matchId })).room.match;
+    const { room: lobby } = await choose(ended, 'rematch');
+    assert.deepEqual(lobby.seats, filled.seats);
+    assert.deepEqual((await act({ type: 'deal' })).room.seats, dealt.seats);
+
+    await roomApi(base, code, host, 'disconnect');
+    now += 24 * 60 * 60 * 1000;
+    assert.equal((await roomApi(base, code, host, 'resume', {}, 404)).code, 'ROOM_GONE');
+  }, { postgres: true, persistent: true });
+
+  roomTest('a human player has time to see and interrupt the first bot runoff speech', async start => {
+    let now = Date.now();
+    const players = Array.from({ length: 2 }, browser);
+    const [host, wolf] = players;
+    const lineup = ['villager', 'wolf', 'villager', 'villager'];
+    const guests = lineup.map((role, index) => {
+      const participant = players[index];
+      return {
+        id: randomUUID(), name: `玩家${index + 1}`, seat: index + 1,
+        ...(participant ? { key: tokenKey(participant.token), tab: participant.tab, lastSeen: now, receipts: [] } : { bot: true }),
+        assignment: { role }, revealed: true, acknowledged: true,
+      };
+    });
+    const code = 'ABCDEF';
+    const room = {
+      code, board: 'custom', lineup, sheriffMode: 'none', hostId: guests[0].id, guests, dealt: true,
+      customRules: { victoryMode: 'town', firstNightKnife: 'disabled' }, expiresAt: now + 60_000,
+    };
+    startMatch(room, matchRules);
+    const command = (match, kind, choice) => ({ type: 'match-choice', matchId: match.matchId ?? match.id, window: match.window, kind, choice });
+    const play = (seat, kind, choice) =>
+      assert.ok(executeMatchChoice(room, guests[seat - 1], command(room.match, kind, choice), matchRules, now));
+    play(2, 'night-action', 'confirm');
+    play(1, 'publish-night');
+    while (room.match.phase === 'discussion') play(1, 'finish-speech');
+    play(1, 'open-exile');
+    play(2, 'vote', 3);
+    play(3, 'vote', 4);
+    play(4, 'vote', 3);
+
+    const base = await start({ matchRules, clock: () => now }, store => store.create(room, guests[0].key, now));
+    const sync = async player => (await roomApi(base, code, player, 'sync')).match;
+    const hostBallot = await sync(host);
+    assert.equal((await sync(wolf)).phase, 'exile-vote');
+    now += 100;
+    const opened = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    assert.equal(opened.phase, 'exile-runoff-speech');
+    assert.ok([3, 4].includes(opened.speaker));
+
+    let seen;
+    for (const elapsed of [1_700, 1_800]) {
+      now += elapsed;
+      seen = await sync(wolf);
+      assert.equal(seen.phase, 'exile-runoff-speech');
+      assert.equal(seen.speaker, opened.speaker);
+      assert.equal(seen.window, opened.window);
+      assert.ok(seen.actions.some(entry => entry.kind === 'self-destruct'));
+    }
+    now += 1_000;
+    const interrupted = (await action(base, code, wolf, command(seen, 'self-destruct'))).room.match;
+    assert.ok(interrupted.history.some(event => event.kind === 'explosion' && event.seat === 2));
+  }, { postgres: true });
+
   roomTest('host transfer preserves seats and moves force-end authority across retry and restart', async start => {
     const options = { matchRules };
     let base = await start(options);
