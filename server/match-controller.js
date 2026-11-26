@@ -33,7 +33,7 @@ export function abandonMatch(match, winner = 'abandoned') {
   finishMatch(match, winner);
 }
 
-function getBallot(match) {
+export function getBallot(match) {
   const isSheriff = electionOpen(match) && match.phase.endsWith('-vote');
   if (isSheriff) return { ...match.election.ballot, targets: match.election.candidates, election: true };
   if (['exile-vote', 'exile-runoff-vote'].includes(match.phase)) return match.day.ballot;
@@ -50,14 +50,19 @@ function recoveryControls(match) {
   return actions;
 }
 
-function controls(match, player, host, rules, now, bot = false) {
+export function interruptActions(match, player, mayWithdraw = false) {
   const actions = [];
-  if (!player) return actions;
-  const add = (kind, options, details) => actions.push({ kind, options, ...details });
-
-  if (canSelfDestruct(match, player)) add('self-destruct');
+  if (canSelfDestruct(match, player)) actions.push({ kind: 'self-destruct', options: undefined });
   const duel = duelTargets(match, player);
-  if (duel.length) add('duel', duel);
+  if (duel.length) actions.push({ kind: 'duel', options: duel });
+  if (mayWithdraw) actions.push({ kind: 'withdraw', options: undefined });
+  return actions;
+}
+
+function controls(match, player, host, rules, now, bot = false) {
+  if (!player) return [];
+  const actions = interruptActions(match, player);
+  const add = (kind, options, details) => actions.push({ kind, options, ...details });
   const { phase, night, election } = match;
   const seat = player.seat;
   const ballot = getBallot(match);

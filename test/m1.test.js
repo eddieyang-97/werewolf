@@ -627,16 +627,16 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.notEqual(knife.window, pending.window);
   }, { postgres: true, persistent: true });
 
-  roomTest('custom room rules, capacity and private deal survive restart and rematch', async start => {
+  roomTest('a 26-player custom room deals, survives restart, votes and rematches', async start => {
     const clock = () => 10_000;
     let base = await start({ clock, matchRules });
     const host = browser();
     const create = { tab: host.tab, board: 'custom', name: '房主' };
-    const lineup = ['villager', 'villager', 'wolf', 'wolfKing', 'wolfBeauty', 'seer', 'magician', 'knight'];
+    const lineup = ['wolf', 'wolfKing', 'wolfBeauty', 'seer', 'magician', 'knight', ...Array(20).fill('villager')];
     assert.equal((await fetch(`${base}/create/custom`)).status, 200);
     for (const invalid of [null, [], ['wolf', 'seer', 'seer', 'villager'], ['wolf', 'seer', 'thief', 'villager'],
       ['mechanical', 'knight', 'villager'], ['wolfBeauty', 'magician', 'magician', 'villager'],
-      ['wolf', 'villager'], ['wolf', 'guard', 'dreamer', 'villager'], [...lineup, ...Array(8).fill('villager')]]) {
+      ['wolf', 'villager'], ['wolf', 'guard', 'dreamer', 'villager'], [...lineup, 'seer']]) {
       const result = await json(base, '/api/rooms', host, { ...create, lineup: invalid }, 400);
       assert.equal(result.code, 'LINEUP');
     }
@@ -683,6 +683,14 @@ describe('room HTTP', { concurrency: 4 }, () => {
       await roomApi(base, code, guest, 'join', { name: `玩家${index + 2}` });
       await action(base, code, guest, { type: 'seat', seat: index + 2 });
     }
+    const unseated = guests.at(-1);
+    await action(base, code, unseated, { type: 'stand' });
+    assert.equal((await json(base, `/api/rooms/${code}`)).full, false);
+    const newcomer = browser();
+    const joined = await roomApi(base, code, newcomer, 'join', { name: '新玩家' });
+    assert.ok(joined.waiting.some(guest => guest.name === `玩家${lineup.length}`));
+    await action(base, code, newcomer, { type: 'seat', seat: lineup.length });
+    guests[guests.length - 1] = newcomer;
     assert.equal((await json(base, `/api/rooms/${code}`)).full, true);
     assert.equal((await roomApi(base, code, browser(), 'join', { name: '访客' }, 409)).code, 'FULL');
     const spectator = browser();
@@ -721,7 +729,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(swapView.actions[0].action, 'swap');
     const villagers = assignments.flatMap((card, index) => card.role === 'villager' ? [index + 1] : []);
     const swap = { type: 'match-choice', matchId: swapView.matchId, window: swapView.window,
-      kind: 'night-action', choice: villagers, id: randomUUID() };
+      kind: 'night-action', choice: villagers.slice(0, 2), id: randomUUID() };
     const swapped = await action(base, code, magician, swap);
     base = await start({ clock, matchRules });
     assert.deepEqual(await action(base, code, magician, swap), swapped);
@@ -747,6 +755,25 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.deepEqual(spectatorView.customRules, customRules);
     const hostMatch = (await roomApi(base, code, host, 'sync')).match;
     assert.deepEqual(hostMatch.actions.map(item => item.kind).filter(kind => kind !== 'self-destruct'), ['publish-night']);
+    const choose = (participant, match, kind, choice) => action(base, code, participant, {
+      type: 'match-choice', matchId: match.matchId, window: match.window, kind, choice,
+    });
+    let { room: { match: discussion } } = await choose(host, hostMatch, 'publish-night');
+    const speakers = [];
+    while (discussion.phase === 'discussion') {
+      speakers.push(discussion.speaker);
+      ({ room: { match: discussion } } = await choose(host, discussion, 'finish-speech'));
+    }
+    const seats = participants.map((_, index) => index + 1);
+    assert.deepEqual(speakers.sort((a, b) => a - b), seats);
+    const { room: { match: ballot } } = await choose(host, discussion, 'open-exile');
+    assert.equal(ballot.voteProgress.expected, lineup.length);
+    const lastSeat = seats.at(-1);
+    for (const participant of participants.slice(0, -1)) await choose(participant, ballot, 'vote', lastSeat);
+    const { room: { match: afterVote } } = await choose(participants.at(-1), ballot, 'vote', null);
+    const published = afterVote.history.find(event => event.kind === 'exile-vote');
+    assert.deepEqual(published.ballot.groups, [{ seat: lastSeat, count: lastSeat - 1, voters: seats.slice(0, -1) }]);
+    assert.deepEqual(published.ballot.abstained, [lastSeat]);
     const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });
     const { matchId, window } = abandoned.room.match;
     const rematch = await action(base, code, host, { type: 'match-choice', matchId, window, kind: 'rematch' });

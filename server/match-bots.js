@@ -1,22 +1,14 @@
 import { randomInt } from 'node:crypto';
-import { executeMatchChoice, seatActions } from './match-controller.js';
+import { executeMatchChoice, getBallot, interruptActions, seatActions } from './match-controller.js';
+import { playerAt } from './match-state.js';
 import { publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
 
 // Leave time for the normal 1.8-second poll and a player's confirmation.
 const HUMAN_RESPONSE_DELAY = 6_000;
+const MAX_BOT_ACTIONS_PER_REQUEST = 16;
 const INTERRUPT_ODDS = 32;
 const interrupts = new Set(['withdraw', 'self-destruct', 'duel']);
-
-function botDelay(match, bots) {
-  if (match.phase === 'sheriff-vote' || match.phase === 'sheriff-runoff-vote') {
-    const pending = pendingVoters(match.election.ballot);
-    // Base the pause on the ballot, so its timing never signals who can self-destruct.
-    if (pending.length && pending.every(seat => bots.some(bot => bot.seat === seat))) return HUMAN_RESPONSE_DELAY;
-  }
-  const speaker = publicSpeaker(match);
-  return bots.some(bot => bot.seat === speaker) ? HUMAN_RESPONSE_DELAY : 0;
-}
 
 function randomChoice(action, choose) {
   if (!action.options) return undefined;
@@ -41,42 +33,51 @@ export function progressBots(room, rules, now, choose = randomInt) {
   if (!rules || !match || match.winner) return false;
   const bots = room.guests.filter(guest => guest.bot === true);
   if (!bots.length) return false;
+  const botSeats = new Set(bots.map(bot => bot.seat));
 
   let changed = false;
-  while (!match.winner) {
-    const delay = botDelay(match, bots);
-    if (delay) {
+  let interruptsCheckedFor;
+  // Subsequent polls continue from the choices saved by this request.
+  for (let count = 0; count < MAX_BOT_ACTIONS_PER_REQUEST && !match.winner; count++) {
+    const speaker = publicSpeaker(match);
+    const ballot = getBallot(match);
+    const pending = ballot ? pendingVoters(ballot) : [];
+    // Base the pause on the ballot, so its timing never signals who can self-destruct.
+    if (botSeats.has(speaker) || (ballot?.election && pending.length && pending.every(seat => botSeats.has(seat)))) {
       if (match.botDelay?.window !== match.window) {
-        match.botDelay = { window: match.window, endsAt: now + delay };
+        match.botDelay = { window: match.window, endsAt: now + HUMAN_RESPONSE_DELAY };
         return true;
       }
       if (now < match.botDelay.endsAt) break;
     }
 
     // A shared wolf prompt is settled by the first submission. Leave it open for a human wolf.
-    if (match.phase === 'night' && room.guests.some(guest => !guest.bot && match.night.step?.seats.includes(guest.seat))) break;
+    const nightSeats = match.phase === 'night' ? match.night.step?.seats ?? [] : null;
+    if (nightSeats?.some(seat => !botSeats.has(seat))) break;
+    const eligible = ballot || nightSeats ? new Set(nightSeats ?? pending) : null;
 
-    const turns = bots.map(bot => ({ bot, actions: seatActions(room, bot, rules, now) }));
-    let interrupted = false;
-    for (const { bot, actions } of turns) {
-      const optional = actions.filter(action => interrupts.has(action.kind));
-      if (!optional.length) continue;
-      if (match.botInterrupts?.window !== match.window) match.botInterrupts = { window: match.window, decided: [] };
-      const { decided } = match.botInterrupts;
-      if (decided.includes(bot.seat)) continue;
-
-      // Save the decision, including a pass, so subsequent polls do not reroll it.
-      decided.push(bot.seat);
-      changed = true;
-      if (choose(INTERRUPT_ODDS) !== 0) continue;
-      if (!play(room, bot, optional[choose(optional.length)], rules, now, choose)) continue;
-      interrupted = true;
-      break;
+    // Look for interrupts without building each bot's ordinary choices.
+    if (interruptsCheckedFor !== match.window) {
+      const decided = new Set(match.botInterrupts?.window === match.window ? match.botInterrupts.decided : []);
+      const candidates = new Set(['sheriff-speech', 'sheriff-runoff-speech'].includes(match.phase)
+        ? match.election.candidates : []);
+      const interrupted = bots.some(bot => {
+        if (decided.has(bot.seat)) return false;
+        const optional = interruptActions(match, playerAt(match, bot.seat), candidates.has(bot.seat));
+        if (!optional.length) return false;
+        if (match.botInterrupts?.window !== match.window) match.botInterrupts = { window: match.window, decided: [] };
+        // Save the decision, including a pass, so subsequent polls do not reroll it.
+        match.botInterrupts.decided.push(bot.seat);
+        changed = true;
+        return choose(INTERRUPT_ODDS) === 0 && play(room, bot, optional[choose(optional.length)], rules, now, choose);
+      });
+      if (interrupted) continue;
+      interruptsCheckedFor = match.window;
     }
-    if (interrupted) continue;
 
-    const acted = turns.some(({ bot, actions }) => {
-      const action = actions.find(entry => !interrupts.has(entry.kind));
+    const acted = bots.some(bot => {
+      if ((eligible && !eligible.has(bot.seat)) || (speaker && bot.seat !== speaker)) return false;
+      const action = seatActions(room, bot, rules, now).find(entry => !interrupts.has(entry.kind));
       return action && play(room, bot, action, rules, now, choose);
     });
     if (!acted) break;
