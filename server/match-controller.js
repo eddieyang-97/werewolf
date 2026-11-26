@@ -43,7 +43,7 @@ function recoveryControls(match) {
   return actions;
 }
 
-function controls(match, player, host, rules) {
+function controls(match, player, host, rules, bot = false) {
   const actions = [];
   if (!player) return actions;
   const add = (kind, options, details) => actions.push({ kind, options, ...details });
@@ -55,7 +55,8 @@ function controls(match, player, host, rules) {
   const seat = player.seat;
   const ballot = getBallot(match);
   const living = () => livingPlayers(match).map(entry => entry.seat);
-  if (host && publicSpeaker(match)) add('start-timer', [30, 60, 90, 120]);
+  const speaker = publicSpeaker(match);
+  if (host && speaker) add('start-timer', [30, 60, 90, 120]);
 
   if (ballot) {
     if (ballot.voters.includes(seat) && !Object.hasOwn(ballot.votes, seat)) {
@@ -84,12 +85,11 @@ function controls(match, player, host, rules) {
     case 'sheriff-speech':
     case 'sheriff-runoff-speech':
       if (election.candidates.includes(seat)) add('withdraw');
-      if (host) add('finish-speech');
-      break;
+      // fall through to the common speech control
     case 'last-words':
     case 'discussion':
     case 'exile-runoff-speech':
-      if (host) add('finish-speech');
+      if (host || (bot && speaker === seat)) add('finish-speech');
       break;
     case 'gun':
       if (match.deathFlow.current.death.seat === seat) {
@@ -119,6 +119,10 @@ function controls(match, player, host, rules) {
       break;
   }
   return actions;
+}
+
+export function seatActions(room, guest, rules) {
+  return controls(room.match, playerAt(room.match, guest.seat), guest.id === room.hostId, rules, guest.bot === true);
 }
 
 export function controllerView(match, seat, host, rules) {
@@ -205,7 +209,7 @@ export function executeMatchChoice(room, guest, command, rules, now) {
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
   const player = playerAt(match, guest.seat);
   const host = guest.id === room.hostId;
-  const action = controls(match, player, host, rules).find(entry => entry.kind === command.kind)
+  const action = seatActions(room, guest, rules).find(entry => entry.kind === command.kind)
     ?? (host && player ? recoveryControls(match).find(entry => entry.kind === command.kind) : undefined);
   if (!action || !validChoice(action, command.choice)) return false;
   if (command.kind === 'rematch') {

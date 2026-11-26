@@ -202,6 +202,12 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 - On approval, move the spectator into that seat and keep the deal, game state, and pending choices attached to it. If the deal has happened and play has yet to begin, the replacement reviews and confirms the role before the match starts. During play the replacement gains the seat’s private view and legal actions immediately. The original session becomes a spectator and, once roles are dealt, cannot request another seat until rematch. The replacement keeps the seat on rematch.
 - Verify that a guest can spectate a full lobby and a match in progress without seeing private roles, pending actions, or unreleased votes. Verify that a returning player keeps their seat if they reconnect first, and that an approved handoff survives retry and restart. Use independent sessions to check that only the replacement can resume the seat’s private action.
 
+## Bot rehearsal
+
+- Before the deal, the host can add a robot to a chosen empty seat, fill all empty seats in one tap, or remove a robot. Show which seats are bots. Support every preset and custom lineup, including rooms with several human players.
+- Deal and save bots as ordinary players. They automatically confirm readiness. Each bot chooses randomly from its seat's legal actions and targets. When a human shares a wolf action with bots, leave that choice to the human.
+- Bots finish their own speaking turns automatically. Human players keep control of their own turns, and a human host controls dealing, starting, public phase changes and rematches. Robots retain their seats for the next deal.
+
 ## Later candidates
 
 | Board | Gameplay additions | Handbook reference |
@@ -209,4 +215,4 @@ The shared requirements also apply to custom lineups. The server may simplify ph
 | 假面舞会 | Hidden wolf, dance pool, and mask interactions. | §6.2 |
 | 预女骑守 | Knight duel and Guard interactions. | §6.5 |
 
-Bot rehearsal, personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Redeal during setup is a candidate for a recovery tool. Define its permitted phases and effects before adding it.
+Personal notes, narration, and in-app chat or voice are candidates for later playtests. Rankings, profile navigation, links to other games, feedback, and decorative cover images are optional widgets. Redeal during setup is a candidate for a recovery tool. Define its permitted phases and effects before adding it.

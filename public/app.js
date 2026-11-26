@@ -272,7 +272,7 @@ function seatTile(guest, index, seatVote) {
   const sub = canReplace ? '离线 · 申请替补' : !guest ? '空座位' : out ? '已出局' : !guest.connected ? '离线' : lobby.match ? '在场' : guest.acknowledged ? '已准备' : unready ? '未准备' : '已坐下';
   const image = guest?.avatar ?? (guest ? null : '/art/empty-seat.png');
   const avatar = image ? `<img class="seat-avatar" src="${escape(image)}" width="36" height="36" alt="">`
-    : `<span class="seat-avatar" aria-hidden="true">${escape(Array.from(name)[0])}</span>`;
+    : `<span class="seat-avatar" aria-hidden="true">${guest?.bot ? '🤖' : escape(Array.from(name)[0])}</span>`;
   return `<button type="button" class="seat${mine ? ' mine' : ''}${guest ? '' : ' vacant'}" data-action="${command}" data-value="${escape(value)}" aria-label="${seat}号座，${escape(label)}${guest ? `，${sub}` : ''}" ${playable || canReplace || (voteTarget && connected) ? '' : 'disabled'}>
     <span class="seat-top">${avatar}${guest?.host ? '<span class="host-label">房主</span>' : ''}${lobby.match?.sheriff === seat ? '<span class="sheriff-label">警长</span>' : ''}</span>
     <strong class="seat-name"><span class="seat-number">${seat}</span>:${escape(guest ? name : '等待')}</strong>
@@ -321,6 +321,7 @@ function roomScreen() {
     </section>
     <div class="stack room-actions">
       ${button('邀请好友', 'invite')}
+      ${state === 'lobby' && self.host && seatedCount < seats.length ? button('用机器人填满空位', 'fill-bots', { variant: 'secondary', disabled: !connected || self.seat === null }) : ''}
       ${state === 'lobby' && self.host ? button('发放身份', 'confirm-deal', { disabled: !connected || !lobby.canDeal }) : ''}
       ${showReady ? button('准备就绪', 'confirm-ready', { disabled: !connected || !self.revealed }) : ''}
       ${state === 'ready' && Object.hasOwn(lobby, 'canStart') ? button('开始游戏', 'confirm-start', { disabled: !connected || !lobby.canStart }) : ''}
@@ -425,7 +426,7 @@ function showTargetPicker(title, notice, form, targets, command) {
   showDialog(title, `<form class="target-picker" data-form="${form}">
     ${command ? `<input type="hidden" name="command" value="${escape(command)}">` : ''}
     <p id="dialog-description">${escape(notice)}</p>
-    <label class="target-picker-field">选择目标玩家<select name="choice" required>
+    <label class="target-picker-field">${form === 'add-bot' ? '选择空座位' : '选择目标玩家'}<select name="choice" required>
       <option value="" selected disabled>请选择座位</option>${options}</select></label>
     <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}<button type="submit" class="button confirm-accept">确定</button></div>
   </form>`, 'prompt-dialog');
@@ -694,6 +695,7 @@ async function submit(event) {
     return dialog.close();
   }
   if (form.dataset.form === 'host-transfer') return action('host-transfer', { target: data.get('choice') });
+  if (form.dataset.form === 'add-bot') return action('add-bot', { seat: Number(data.get('choice')) });
   if (form.dataset.form === 'match-choice') {
     const command = JSON.parse(data.get('command'));
     const choices = data.getAll('choice').map(value => JSON.parse(value));
@@ -994,6 +996,12 @@ async function click(event) {
     }
     case 'seat':
       return Number(value) === lobby.self.seat ? action('stand') : action('seat', { seat: Number(value) });
+    case 'fill-bots': return action('fill-bots');
+    case 'bot-seats': {
+      const targets = lobby.seats.flatMap((guest, index) => guest ? [] : [{ value: index + 1, label: `${index + 1}号座` }]);
+      if (targets.length) return showTargetPicker('添加机器人', '机器人会自动准备，并在对局中随机行动。', 'add-bot', targets);
+      return dialog.close();
+    }
     case 'confirm-replacement': {
       const target = lobby.seats.find(guest => guest?.id === value);
       if (target) return confirm('申请替补', `申请接替 ${target.seat} 号座的 ${target.name}？`, 'replacement-request', '提交申请', target.id);
@@ -1044,8 +1052,9 @@ async function click(event) {
     case 'manage': {
       if (!lobby.self.host) return;
       const { match } = lobby;
-      const canTransferHost = lobby.seats.some(guest => guest && !guest.host && guest.connected);
+      const canTransferHost = lobby.seats.some(guest => guest && !guest.bot && !guest.host && guest.connected);
       const controls = [button('转交房主', 'host-targets', { variant: 'secondary', disabled: !canTransferHost })];
+      if (lobby.state === 'lobby' && !lobby.full) controls.push(button('添加机器人', 'bot-seats', { variant: 'secondary' }));
       if (match?.canAbandon) {
         controls.push(hostMatchButton(match, 'host-eliminate'),
           button('强制结束', 'force-end', { variant: 'secondary', value: match.canAbandon }),
@@ -1061,7 +1070,7 @@ async function click(event) {
     }
     case 'host-targets': {
       if (!lobby.self.host) return;
-      const targets = lobby.seats.filter(guest => guest && !guest.host && guest.connected)
+      const targets = lobby.seats.filter(guest => guest && !guest.bot && !guest.host && guest.connected)
         .map(({ id, seat, name }) => ({ value: id, label: `${seat}号 · ${name}` }));
       if (!targets.length) return showHostDialog('转交房主', '<p>目前没有可接任的玩家。</p>');
       return showTargetPicker('转交房主', '所选玩家将接任房主。', 'host-transfer', targets);
