@@ -14,6 +14,12 @@ npm start
 
 Open `http://localhost:3000`. The server uses `.data/rooms.sqlite` by default. Set `ROOM_DB_PATH` for a different SQLite file, or `DATABASE_URL` for PostgreSQL.
 
+### Playtest on your own
+
+Create a room and tap **用机器人填满空位**. To add just one bot, open **房主操作 → 添加机器人** and choose an empty seat. You can remove individual bots there before dealing.
+
+Tap **发放身份**, view your own role and confirm **准备就绪**, then tap **开始游戏**. Bots automatically ready up, choose legal actions and votes at random, and finish their speaking turns. You play your own seat and advance the game with the usual host controls. **再来一局** keeps the bots seated for the next deal.
+
 ## Tests and merges
 
 `npm test` runs the rule and SQLite HTTP tests. To iterate on the room tests, run `node --test test/m1.test.js`. Independent cases run in parallel with ephemeral HTTP ports and separate stores.
@@ -30,7 +36,7 @@ docker stop werewolf-test-postgres
 
 In PowerShell, set `$env:WEREWOLF_TEST_POSTGRES_URL` to the same URL before running `npm test`. The tests use this dedicated loopback URL and ignore the app's `DATABASE_URL`.
 
-Run `npm run test:browser` with Google Chrome installed to test remembered profiles against a local SQLite server.
+Run `npm run test:browser` with Google Chrome installed to test remembered profiles and the solo bot playtest flow against a local SQLite server.
 
 The GitHub Actions **Tests** check runs both storage backends and the Chrome regression on pull requests to `main` and pushes to `main`. GitHub currently requires Pro or public visibility to enforce status checks on this repository. Wait for **Tests** to pass on the latest PR revision before merging. If branch protection becomes available, require this check on `main`.
 
