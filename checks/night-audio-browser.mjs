@@ -9,7 +9,7 @@ import { nightChoiceDuration } from '../server/night-actions.js';
 import { createRooms, tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
-async function game(t, { lineup = ['villager', 'guard', 'wolf'], customRules } = {}) {
+async function game(t, { lineup = ['villager', 'guard', 'wolf'], customRules, sheriffMode } = {}) {
   let now = Date.now();
   const clock = () => now;
   const code = 'ABCDEF';
@@ -21,7 +21,7 @@ async function game(t, { lineup = ['villager', 'guard', 'wolf'], customRules } =
       seat: index + 1, lastSeen: now, assignment: { role }, avatar: null, revealed: true, acknowledged: true, receipts: [] } };
   });
   const [host, guard] = players;
-  store.create({ code, board: 'custom', lineup, customRules, hostId: host.guest.id, guests: players.map(player => player.guest),
+  store.create({ code, board: 'custom', lineup, customRules, sheriffMode, hostId: host.guest.id, guests: players.map(player => player.guest),
     dealt: true, expiresAt: now + 86_400_000 }, host.guest.key, now);
   const app = createApp(store, { clock, matchRules }).listen(0, '127.0.0.1');
   t.after(async () => {
@@ -56,7 +56,9 @@ function syncResponse(page, matches) {
     .then(response => response.json());
 }
 
-test('only a wolf can confirm 不击杀 in the first-night wolf turn', { timeout: 30_000 }, async t => {
+const showActions = page => page.getByRole('button', { name: '显示操作', exact: true });
+
+test('night and self-destruct actions stay behind the same disclosure for wolf and village seats', { timeout: 30_000 }, async t => {
   const { host, players, playerPage, url } = await game(t, {
     lineup: ['villager', 'wolf', 'wolfKing', 'villager'],
     customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
@@ -67,13 +69,68 @@ test('only a wolf can confirm 不击杀 in the first-night wolf turn', { timeout
   await hostPage.locator('[data-action=start-match]').click();
 
   const noKill = page => page.getByRole('button', { name: '不击杀', exact: true });
+  const selfDestruct = page => page.getByRole('button', { name: '自爆', exact: true });
+  await showActions(wolfPage).waitFor();
+  assert.equal(await noKill(wolfPage).count(), 0);
+  assert.equal(await wolfPage.getByText('狼队同伴：3号', { exact: true }).count(), 0);
+  await showActions(hostPage).click();
+  await showActions(wolfPage).click();
   await noKill(wolfPage).waitFor();
   await wolfPage.getByText('狼队同伴：3号', { exact: true }).waitFor();
   assert.equal(await noKill(hostPage).count(), 0);
   assert.equal(await wolfPage.locator('[data-night-action-clock]').count(), 0);
   await noKill(wolfPage).click();
   await wolfPage.getByText('等待公布昨夜信息', { exact: true }).waitFor();
-  assert.equal(await noKill(wolfPage).count(), 0);
+  assert.equal(await selfDestruct(wolfPage).count(), 0);
+  await showActions(hostPage).click();
+  assert.equal(await selfDestruct(hostPage).count(), 0);
+  await showActions(wolfPage).click();
+  await selfDestruct(wolfPage).click();
+  const dialog = wolfPage.getByRole('dialog');
+  await dialog.getByText('自爆后你将出局。').waitFor();
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await wolfPage.getByRole('button', { name: '隐藏操作', exact: true }).click();
+  assert.equal(await selfDestruct(wolfPage).count(), 0);
+});
+
+test('exile ballot seats and abstention activate only while match actions are expanded', { timeout: 30_000 }, async t => {
+  const { code, host, players, rooms, playerPage, url } = await game(t, {
+    lineup: ['villager', 'wolf', 'villager', 'villager'], sheriffMode: 'none',
+    customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
+  });
+  function play({ token, guest }, kind, choice) {
+    const { matchId, window } = rooms.sync(code, token, guest.tab).match;
+    return rooms.action(code, token, guest.tab, { id: randomUUID(), type: 'match-choice', matchId, window, kind, choice }).room.match;
+  }
+  rooms.action(code, host.token, host.guest.tab, { id: randomUUID(), type: 'match-start' });
+  play(players[1], 'night-action', 'confirm');
+  let match = play(host, 'publish-night');
+  while (match.phase === 'discussion') match = play(host, 'finish-speech');
+  assert.equal(play(host, 'open-exile').phase, 'exile-vote');
+
+  const page = await playerPage(players[2]);
+  await page.goto(url);
+  await showActions(page).waitFor();
+  const abstain = page.getByRole('button', { name: '弃票', exact: true });
+  const target = page.locator('.seat').nth(1);
+  assert.equal(await abstain.count(), 0);
+  assert.equal(await target.isDisabled(), true);
+  await showActions(page).click();
+  assert.equal(await target.isEnabled(), true);
+  await target.click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText('投给 2号 · 玩家2？').waitFor();
+  await dialog.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '隐藏操作', exact: true }).click();
+  assert.equal(await target.isDisabled(), true);
+  assert.equal(await abstain.count(), 0);
+  await showActions(page).click();
+  await abstain.click();
+  await dialog.getByText('确认弃票？').waitFor();
+  await dialog.getByRole('button', { name: '确定', exact: true }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  assert.equal(await target.isDisabled(), true);
+  assert.equal(await abstain.count(), 0);
 });
 
 test('the host finishes a delayed wake-up call before the full action window begins', { timeout: 30_000 }, async t => {
@@ -186,6 +243,7 @@ test('an eligible player sees the timer continue through a disconnect and the di
     Object.defineProperty(performance, 'now', { value: () => now() + window.actionTimerOffset });
   });
   await page.goto(url);
+  await showActions(page).click();
   const control = page.locator('.night-action[data-action=match-control]');
   await control.click();
   const timer = page.locator('dialog [data-night-action-clock]');
@@ -224,6 +282,7 @@ test('resuming with an expired response does not reopen the private action', { t
     await route.fulfill({ response });
   }, { times: 1 });
   await page.goto(url);
+  await showActions(page).click();
   const control = page.locator('.night-action[data-action=match-control]');
   await control.waitFor();
   assert.equal(await control.isDisabled(), true);
@@ -251,6 +310,7 @@ test('a fresh poll restores an action after a slow outgoing reconnect request', 
     await route.continue();
   }, { times: 1 });
   await page.goto(url);
+  await showActions(page).click();
   const control = page.locator('.night-action[data-action=match-control]');
   const timer = page.locator('[data-night-action-clock]');
   await timer.filter({ hasText: '操作时间已到' }).waitFor();

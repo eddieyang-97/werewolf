@@ -50,6 +50,7 @@ let matchClock;
 let nightActionClock;
 let roomError = '';
 let showingHistory = false;
+let showingMatchActions = false;
 let voteClosure;
 let nightVoiceOn = false;
 let seenNightCue;
@@ -378,7 +379,7 @@ function roomScreen() {
     return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>${profileForm('join-room', '加入房间', null, joinDraft)}`;
   }
   const { self, seats, state, match } = lobby;
-  const seatVote = exileVote(match);
+  const seatVote = showingMatchActions ? exileVote(match) : undefined;
   const seatedCount = seats.filter(Boolean).length;
   const readyCount = seats.filter(guest => guest?.acknowledged).length;
   const showReady = state === 'dealt' && self.seat !== null && !self.acknowledged;
@@ -395,7 +396,7 @@ function roomScreen() {
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
       ${self.spectator ? '' : button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
-      ${self.host ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
+      ${self.host && !match ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
     <section class="room-overview">
@@ -418,7 +419,9 @@ function roomScreen() {
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
-    ${match ? matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
+    ${match ? matchPanel(match, button, {
+      connected, seatVote, showingActions: showingMatchActions, host: self.host, nightVoiceOn, speechAvailable,
+    }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="${seats.length} 个座位">${seats.map((guest, index) => seatTile(guest, index, seatVote)).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
@@ -574,6 +577,10 @@ function roomRequest(operation, body = {}, options = {}) {
 function applyLobby(next, requestStartedAt) {
   syncNightActionClock(next.match, requestStartedAt);
   const changed = !connected || JSON.stringify(next) !== JSON.stringify(lobby);
+  if (next.match?.phase !== lobby?.match?.phase || next.match?.round !== lobby?.match?.round
+      || next.self.seat !== lobby?.self.seat || next.self.host !== lobby?.self.host) {
+    showingMatchActions = false;
+  }
   if (lobby && next.self.spectator !== lobby.self.spectator) {
     dialog.close();
     message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
@@ -598,6 +605,7 @@ function applyLobby(next, requestStartedAt) {
 }
 
 function handleRoomError(error) {
+  showingMatchActions = false;
   interruptNightVoice();
   if (error.code === 'TAKEN_OVER') {
     nightVoiceOn = false;
@@ -697,6 +705,7 @@ async function go(path, replace = false) {
   resumable = false;
   takenOver = false;
   showingHistory = false;
+  showingMatchActions = false;
   waiting = false;
   const match = /^\/room\/([A-Z0-9]{6})\/?$/.exec(path);
   if (match && codePattern.test(match[1])) {
@@ -991,7 +1000,7 @@ function showHelp(tabName = 'basic') {
     .map(step => nightNames[step] ?? roles[step].name).join(' → ');
   const election = (lobby?.sheriffMode ?? info?.sheriffMode) === 'none' ? '' : '警长竞选、';
   const customNoKnife = (lobby?.customRules ?? info?.customRules)?.firstNightKnife === 'disabled';
-  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，任意一名狼队成员可点击「不击杀」确认。</p>'
+  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，任意一名狼队成员可在「显示操作」中点击「不击杀」确认。</p>'
     : boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : '';
   const pages = {
     basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
@@ -1153,6 +1162,12 @@ async function click(event) {
       nightVoiceOn = narrate && nightVoice.prime();
       return action('match-start', narrate ? { nightNarration: true } : {});
     }
+    case 'toggle-match-actions': {
+      showingMatchActions = !showingMatchActions;
+      render();
+      root.querySelector('[data-action="toggle-match-actions"]').focus({ preventScroll: true });
+      return;
+    }
     case 'toggle-night-voice': {
       if (!connected || !lobby?.self.host || !lobby.match?.nightNarration || !speechAvailable) return;
       if (nightVoiceOn) {
@@ -1181,6 +1196,7 @@ async function click(event) {
     }
     case 'match-send': return action('match-choice', JSON.parse(value));
     case 'match-history':
+      showingMatchActions = false;
       showingHistory = true;
       return render();
     case 'vote-detail': {
