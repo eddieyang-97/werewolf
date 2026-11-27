@@ -51,6 +51,7 @@ for (const lastWolf of [false, true]) {
     while (match.phase === 'discussion') play(host, 'finish-speech');
     play(host, 'open-exile');
     for (const guest of room.guests) play(guest, 'vote', guest === king ? null : king.seat);
+    play(host, 'reveal-exile-vote');
     if (lastWolf) {
       assert.equal(match.winner, 'village');
       assert.equal(controls(room, king).actions, undefined);
@@ -202,6 +203,7 @@ test('custom no-knife Night 1 preserves private wolf recognition and Witch self-
   while (match.phase === 'discussion') play(host, 'finish-speech');
   play(host, 'open-exile');
   for (const guest of room.guests.filter(guest => guest !== king)) play(guest, 'vote', null);
+  play(host, 'reveal-exile-vote');
   play(host, 'next-night');
   play(wolf, 'night-action', witch.seat);
   const spent = controls(room, witch);
@@ -230,6 +232,7 @@ test('custom town elimination continues after the only god dies and ends on the 
   play(wolf, 'open-exile');
   play(wolf, 'vote', null);
   play(mixed, 'vote', null);
+  play(wolf, 'reveal-exile-vote');
   play(wolf, 'next-night');
   play(wolf, 'night-action', mixed.seat);
   assert.equal(room.match.winner, 'wolves');
@@ -268,6 +271,7 @@ test('Magician redirects private actions while preserving nominated seats and th
   while (['last-words', 'discussion'].includes(match.phase)) play(host, 'finish-speech');
   play(host, 'open-exile');
   for (const guest of room.guests.filter(guest => guest !== victim)) play(guest, 'vote', null);
+  play(host, 'reveal-exile-vote');
   play(host, 'next-night');
   const nextSwap = controls(room, magician).actions[0];
   assert.equal(nextSwap.action, 'swap');
@@ -316,6 +320,7 @@ test('Wolf Beauty may pick the same target after a night with no legal charm', (
     while (['last-words', 'discussion'].includes(room.match.phase)) play(beauty, 'finish-speech');
     play(beauty, 'open-exile');
     for (const guest of [beauty, target]) play(guest, 'vote', null);
+    play(beauty, 'reveal-exile-vote');
     play(beauty, 'next-night');
   };
   startMatch(room, matchRules);
@@ -353,6 +358,7 @@ for (const duel of [false, true]) {
       play(host, 'open-exile');
       assert.ok(!controls(room, knight).actions.some(action => action.kind === 'duel'));
       for (const guest of room.guests) play(guest, 'vote', guest === beauty ? null : beauty.seat);
+      play(host, 'reveal-exile-vote');
       assert.equal(match.phase, 'last-words');
       assert.equal(playerAt(match, hunter.seat).death, undefined);
       play(host, 'finish-speech');
@@ -417,7 +423,7 @@ test('an incorrect Knight duel against Mixed Blood has last words and resumes da
 });
 
 for (const transferBadge of [true, false]) {
-  test(`a sheriff Knight's failed duel clears their nomination when the badge is ${transferBadge ? 'transferred' : 'destroyed'}`, () => {
+  test(`a sheriff Knight's failed duel during nomination resumes voting when the badge is ${transferBadge ? 'transferred' : 'destroyed'}`, () => {
     const room = createRoom('custom', undefined, ['knight', 'wolf', 'wolf', 'fool', 'villager', 'villager']);
     const [knight, oldTarget, newTarget, successor, host, good] = room.guests;
     room.hostId = host.id;
@@ -430,21 +436,22 @@ for (const transferBadge of [true, false]) {
     play(host, 'publish-night');
     play(knight, 'direction', 1);
     while (match.phase === 'discussion') play(host, 'finish-speech');
-    play(host, 'open-nomination');
-    play(knight, 'nominate', [oldTarget.seat]);
-    assert.equal(match.phase, 'exile-locked');
+    play(host, 'open-exile');
+    assert.equal(match.phase, 'nomination');
+    assert.equal(executeMatchChoice(room, host, { matchId: match.id, window: match.window, kind: 'open-exile' }, matchRules), false);
     play(knight, 'duel', good.seat);
     play(host, 'finish-speech');
     play(knight, 'badge', transferBadge ? successor.seat : null);
-    assert.equal(match.phase, transferBadge ? 'nomination' : 'exile-locked');
+    assert.equal(match.phase, transferBadge ? 'nomination' : 'exile-vote');
     assert.equal(match.day.nominations, undefined);
     assert.equal(controls(room, oldTarget).self.canSelfDestruct, false);
     if (transferBadge) play(successor, 'nominate', [newTarget.seat]);
-    play(host, 'open-exile');
+    assert.equal(match.phase, 'exile-vote');
     for (const guest of room.guests.filter(guest => guest !== knight)) {
       const target = guest === successor ? newTarget.seat : guest === host ? oldTarget.seat : null;
       play(guest, 'vote', target);
     }
+    play(host, 'reveal-exile-vote');
     const ballot = match.history.findLast(event => event.kind === 'exile-vote').ballot;
     assert.deepEqual(ballot.groups, [
       { seat: oldTarget.seat, count: 1, voters: [host.seat] },
@@ -471,9 +478,9 @@ test('a successful Knight duel settles the Masked departure before the next nigh
   assert.deepEqual(controls(room, host).departed, [wolf.seat, masked.seat]);
 });
 
-for (const next of ['open-exile', 'open-nomination', 'victory']) {
-  test(`skipping individual discussion steps resolves the Masked sheriff before ${next}`, () => {
-    const lineup = ['wolf', 'masked', 'villager', 'villager', ...(next === 'victory' ? [] : ['seer'])];
+for (const outcome of ['transfer', 'destroy', 'victory']) {
+  test(`starting exile resolves the Masked sheriff first with ${outcome}`, () => {
+    const lineup = ['wolf', 'masked', 'villager', 'villager', ...(outcome === 'victory' ? [] : ['seer'])];
     const room = createRoom('custom', undefined, lineup);
     const [wolf, masked, host, successor, seer] = room.guests;
     room.hostId = host.id;
@@ -489,33 +496,30 @@ for (const next of ['open-exile', 'open-nomination', 'victory']) {
     assert.equal(match.phase, 'discussion');
     assert.equal(playerAt(match, masked.seat).death, undefined);
 
-    play(host, next === 'open-nomination' ? 'open-nomination' : 'open-exile');
+    play(host, 'open-exile');
     assert.equal(playerAt(match, masked.seat).death.time, 'delayed');
     assert.deepEqual(controls(room, host).departed, [masked.seat]);
     assert.equal(match.day.ballot, undefined);
-    if (next === 'victory') {
+    if (outcome === 'victory') {
       assert.equal(match.phase, 'finished');
       assert.equal(match.winner, 'wolves');
       return;
     }
 
     assert.equal(match.phase, 'badge');
-    play(masked, 'badge', successor.seat);
-    if (next === 'open-nomination') {
+    play(masked, 'badge', outcome === 'transfer' ? successor.seat : null);
+    if (outcome === 'transfer') {
       assert.equal(match.phase, 'nomination');
-      play(successor, 'nominate', [wolf.seat]);
-      play(host, 'open-exile');
-      assert.deepEqual(match.day.nominations, [wolf.seat]);
+      play(successor, 'nominate', []);
+      assert.deepEqual(match.day.nominations, []);
     }
     assert.equal(match.phase, 'exile-vote');
     assert.ok(!match.day.ballot.voters.includes(masked.seat));
     assert.ok(!match.day.ballot.targets.includes(masked.seat));
-    if (next === 'open-exile') {
-      play(successor, 'vote', wolf.seat);
-      play(host, 'close-vote');
-      const ballot = match.history.findLast(event => event.kind === 'exile-vote').ballot;
-      assert.deepEqual(ballot.groups, [{ seat: wolf.seat, count: 1.5, voters: [successor.seat] }]);
-    }
+    play(successor, 'vote', wolf.seat);
+    play(host, 'close-vote');
+    const ballot = match.history.findLast(event => event.kind === 'exile-vote').ballot;
+    assert.deepEqual(ballot.groups, [{ seat: wolf.seat, count: outcome === 'transfer' ? 1.5 : 1, voters: [successor.seat] }]);
   });
 }
 
@@ -631,6 +635,7 @@ test('no badge skips the election and runs ordinary exile with one vote per play
     kind: 'host-eliminate', choice: wolf.seat }, matchRules), false);
   assert.equal(controls(room, secondWolf).self.canSelfDestruct, false);
   for (const guest of room.guests) play(guest, 'vote', guest === host || guest === other ? wolf.seat : null);
+  play(host, 'reveal-exile-vote');
   const ballot = room.match.history.find(event => event.kind === 'exile-vote').ballot;
   assert.deepEqual(ballot.groups, [{ seat: wolf.seat, count: 2, voters: [host.seat, other.seat] }]);
   assert.equal(room.match.sheriff, null);
@@ -705,7 +710,7 @@ test('the last wolf exploding before dawn publication wins for good before Maske
   startMatch(room, matchRules);
   const { match } = room;
   function play(guest, kind, choice, nightAction) {
-    const action = controls(room, guest).actions?.find(entry => entry.kind === kind && entry.action === nightAction);
+    const action = controls(room, guest).actions?.find(entry => entry.kind === kind && (nightAction === undefined || entry.action === nightAction));
     assert.ok(action, `${kind} ${nightAction ?? ''} must be available to seat ${guest.seat} in ${match.phase}`);
     choose(room, guest, action, choice);
   }
@@ -716,6 +721,7 @@ test('the last wolf exploding before dawn publication wins for good before Maske
     for (const guest of room.guests) {
       if (!playerAt(match, guest.seat).death) play(guest, 'vote', guest === target ? null : target.seat);
     }
+    play(host, 'reveal-exile-vote');
     assert.equal(match.phase, 'last-words');
     play(host, 'finish-speech');
   }
@@ -781,6 +787,7 @@ test('Thief preset Wolf King retains red-wolf knife rights, reports double claws
     for (const guest of room.guests) {
       if (!playerAt(match, guest.seat).death) play(guest, 'vote', guest === target ? null : target.seat);
     }
+    play(host, 'reveal-exile-vote');
     assert.equal(match.phase, 'last-words');
     play(host, 'finish-speech');
   }
@@ -859,8 +866,9 @@ test('an abandoned round reveals no private roster and allows the host to keep t
   assert.equal(room.guests.length, 12);
 });
 
-test('individual ballots stay private until resolved, then publish voter groups and the sheriff weight', () => {
+test('a fully submitted exile ballot stays private until the host reveals it', () => {
   const room = createRoom('classic');
+  const [host, , , , watcher] = room.guests;
   startMatch(room, matchRules);
   const { match } = room;
   match.phase = 'exile-vote';
@@ -871,16 +879,21 @@ test('individual ballots stay private until resolved, then publish voter groups 
     const view = controls(room, guest);
     const next = view.actions.find(action => action.kind === 'vote');
     choose(room, guest, next, value);
-    if (index < 3) {
-      const hostView = controls(room, room.guests[0]);
-      assert.deepEqual(hostView.voteProgress, { received: index + 1, expected: 4, pending: [1, 2, 3, 4].slice(index + 1) });
-      const watcher = controls(room, room.guests[4]);
-      assert.equal(watcher.history.length, 0);
-      assert.equal(watcher.voteProgress, undefined);
-      assert.equal(hostView.actions.some(action => action.kind === 'close-vote'), true);
-    }
+    const hostView = controls(room, host);
+    assert.equal(hostView.phase, 'exile-vote');
+    assert.deepEqual(hostView.voteProgress, { received: index + 1, expected: 4, pending: [1, 2, 3, 4].slice(index + 1) });
+    const publicView = controls(room, watcher);
+    assert.equal(publicView.history.length, 0);
+    assert.equal(publicView.voteProgress, undefined);
+    const expectedAction = index < 3 ? 'close-vote' : 'reveal-exile-vote';
+    assert.deepEqual(hostView.actions.map(action => action.kind), [expectedAction]);
   }
-  const event = controls(room, room.guests[4]).history.find(item => item.kind === 'exile-vote');
+  const { matchId, window } = controls(room, host);
+  const reveal = { matchId, window, kind: 'reveal-exile-vote' };
+  assert.equal(executeMatchChoice(room, watcher, reveal, matchRules), false);
+  playAction(room, host, 'reveal-exile-vote');
+  assert.equal(executeMatchChoice(room, host, reveal, matchRules), false);
+  const event = controls(room, watcher).history.find(item => item.kind === 'exile-vote');
   assert.deepEqual(event.ballot, {
     groups: [{ seat: 5, count: 2.5, voters: [1, 2] }, { seat: 6, count: 1, voters: [3] }],
     abstained: [4],

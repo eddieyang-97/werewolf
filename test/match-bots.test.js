@@ -74,6 +74,7 @@ test('bots use legal swaps and ballots without taking over a human wolf or speak
   assert.deepEqual(view.voteProgress, { received: 4, expected: 5, pending: [1] });
   assert.equal(view.history.some(event => event.kind === 'exile-vote'), false);
   play('vote', bot.seat);
+  play('reveal-exile-vote');
   assert.deepEqual(match.history.find(event => event.kind === 'exile-vote').ballot.groups.find(group => group.seat === 1).voters,
     [2, 3, 4, 5]);
 });
@@ -117,6 +118,7 @@ test('a large bot ballot builds choices in batches and resumes after a saved pol
   for (const [seat, target] of Object.entries(firstVotes)) assert.equal(room.match.day.ballot.votes[seat], target);
   assert.ok(!Object.hasOwn(room.match.day.ballot.votes, 1));
   playChoice(room, 1, 'vote', null);
+  playChoice(room, 1, 'reveal-exile-vote');
   const ballot = room.match.history.find(event => event.kind === 'exile-vote').ballot;
   assert.deepEqual(ballot.groups, [{ seat: 1, count: botCount, voters: room.guests.slice(1).map(bot => bot.seat) }]);
   assert.deepEqual(ballot.abstained, [1]);

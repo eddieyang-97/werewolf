@@ -313,7 +313,10 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const hostBallot = await sync(host);
     assert.equal((await sync(wolf)).phase, 'exile-vote');
     now += 100;
-    const opened = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    const readyToReveal = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    assert.equal(readyToReveal.phase, 'exile-vote');
+    assert.ok(readyToReveal.history.every(event => !event.ballot));
+    const opened = (await action(base, code, host, command(readyToReveal, 'reveal-exile-vote'))).room.match;
     assert.equal(opened.phase, 'exile-runoff-speech');
     assert.equal(opened.speaker, null);
     assert.deepEqual(opened.exileRunoffCandidates.toSorted((a, b) => a - b), [3, 4]);
@@ -773,7 +776,10 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const lastSeat = seats.at(-1);
     for (const participant of participants.slice(0, -1)) await choose(participant, ballot, 'vote', lastSeat);
     const { room: { match: afterVote } } = await choose(participants.at(-1), ballot, 'vote', null);
-    const published = afterVote.history.find(event => event.kind === 'exile-vote');
+    assert.equal(afterVote.phase, 'exile-vote');
+    assert.ok(afterVote.history.every(event => !event.ballot));
+    const { room: { match: revealed } } = await choose(host, ballot, 'reveal-exile-vote');
+    const published = revealed.history.find(event => event.kind === 'exile-vote');
     assert.deepEqual(published.ballot.groups, [{ seat: lastSeat, count: lastSeat - 1, voters: seats.slice(0, -1) }]);
     assert.deepEqual(published.ballot.abstained, [lastSeat]);
     const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });

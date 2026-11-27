@@ -307,6 +307,7 @@ test('a custom second night still calls a depleted Poisoner and a dead Seer', t 
   while (['last-words', 'discussion'].includes(view.phase)) view = play(host, 'finish-speech');
   play(host, 'open-exile');
   for (const voter of players.filter(player => player !== seer && player !== victim)) play(voter, 'vote', null);
+  play(host, 'reveal-exile-vote');
   view = play(host, 'next-night');
   assertCue(view, 2, 'wolf');
   play(role('wolf'), 'night-action', null);
@@ -356,6 +357,7 @@ for (const copied of ['medium', 'villager']) test(`the Mechanical Wolf cue has t
   while (view.phase === 'discussion') view = play(host, 'finish-speech');
   play(host, 'open-exile');
   for (const player of players) play(player, 'vote', null);
+  play(host, 'reveal-exile-vote');
   view = play(host, 'next-night');
   for (const id of ['guard', 'wolf', 'witch']) {
     assertCue(view, 2, id);

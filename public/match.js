@@ -24,8 +24,8 @@ const phaseTitles = {
 const labels = {
   'self-destruct': '自爆', 'open-election': '开始警长竞选', 'publish-night': '公布昨夜信息',
   candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪', duel: '骑士决斗',
-  badge: '交接警徽', direction: '选择发言方向', 'open-nomination': '开始警长归票', nominate: '选择归票对象',
-  'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
+  badge: '交接警徽', direction: '选择发言方向', nominate: '选择归票对象',
+  'open-exile': '发起放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
   'host-eliminate': '标记出局', 'host-transfer-badge': '移交警徽',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
@@ -38,6 +38,7 @@ const labels = {
 
 export function matchLabel(control) {
   if (control.kind === 'open-sheriff-vote') return '开始投票';
+  if (control.kind === 'reveal-exile-vote' || (control.kind === 'close-vote' && control.exile)) return '开票';
   if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }

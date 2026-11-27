@@ -46,8 +46,10 @@ export function advanceDeathFlow(match) {
   else if (flow.then === 'exile-vote') openExileVote(match);
   else if (flow.resumePhase === 'discussion' && playerAt(match, match.day.order[match.day.speakerIndex]).death) {
     nextDiscussionSpeaker(match);
+  } else if (flow.resumePhase === 'nomination' && match.sheriff === null) {
+    openExileVote(match);
   } else if (flow.resumePhase) {
-    changePhase(match, flow.resumePhase === 'nomination' && match.sheriff === null ? 'exile-locked' : flow.resumePhase);
+    changePhase(match, flow.resumePhase);
   } else if (flow.then === 'end-duel-day') {
     const pending = concludeDelayedDeaths(match, livingPlayers(match).filter(player => player.delayedDeath));
     for (const death of pending) addHistory(match, 'day', 'departed', { seat: death.seat });
@@ -204,14 +206,15 @@ function settleDiscussionDepartures(match, then) {
 
 export function openNomination(match) {
   if (settleDiscussionDepartures(match, 'nomination')) return;
-  changePhase(match, match.sheriff === null ? 'exile-open' : 'nomination');
+  if (match.sheriff === null) openExileVote(match);
+  else changePhase(match, 'nomination');
 }
 
 export function settleNomination(match, nominations) {
   match.day.nominations = nominations;
   addHistory(match, 'day', 'nomination', { seats: nominations });
   if (nominations.length > 1) beginExileRunoff(match, nominations);
-  else changePhase(match, 'exile-locked');
+  else openExileVote(match);
 }
 
 export function openExileVote(match) {

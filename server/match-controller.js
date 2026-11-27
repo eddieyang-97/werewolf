@@ -80,7 +80,12 @@ function controls(match, player, host, rules, now, bot = false) {
       const targets = rules.ballotTargets(ballot, seat);
       add('vote', rules.abstention ? [...targets, null] : targets);
     }
-    if (host && rules.earlyClose(match, ballot)) add('close-vote');
+    if (host && rules.earlyClose(match, ballot)) {
+      add('close-vote', undefined, ballot.election ? undefined : { exile: true });
+    } else if (host && !ballot.election && pendingVoters(ballot).length === 0) {
+      // Older pages display 查看投票结果 and can submit the action normally.
+      add('reveal-exile-vote', undefined, { action: 'close-vote' });
+    }
     return actions;
   }
 
@@ -118,10 +123,9 @@ function controls(match, player, host, rules, now, bot = false) {
       if (phase === 'last-words') break;
       // The host can also move on directly after the table has finished speaking.
     case 'exile-open':
-      if (host) {
-        if (match.sheriff !== null) add('open-nomination');
-        add('open-exile');
-      }
+    case 'exile-locked':
+    case 'exile-runoff-speech':
+      if (host) add('open-exile');
       break;
     case 'gun':
       if (match.deathFlow.current.death.seat === seat) {
@@ -136,10 +140,6 @@ function controls(match, player, host, rules, now, bot = false) {
       break;
     case 'nomination':
       if (match.sheriff === seat) add('nominate', living(), { multiple: true });
-      break;
-    case 'exile-locked':
-    case 'exile-runoff-speech':
-      if (host) add('open-exile');
       break;
     case 'next-night':
       if (host) add('next-night');
@@ -195,7 +195,7 @@ function applyChoice(room, player, kind, choice, rules, now) {
     case 'vote': {
       const ballot = getBallot(match);
       ballot.votes[player.seat] = choice;
-      if (ballot.voters.every(seat => Object.hasOwn(ballot.votes, seat))) closeVote(match, ballot);
+      if (ballot.election && ballot.voters.every(seat => Object.hasOwn(ballot.votes, seat))) closeVote(match, ballot);
       break;
     }
     case 'close-vote': {
@@ -204,6 +204,7 @@ function applyChoice(room, player, kind, choice, rules, now) {
       closeVote(match, ballot);
       break;
     }
+    case 'reveal-exile-vote': closeExileVote(match); break;
     case 'open-election': startElection(match); break;
     case 'open-sheriff-vote': openElectionVote(match); break;
     case 'candidacy':
@@ -222,9 +223,11 @@ function applyChoice(room, player, kind, choice, rules, now) {
     case 'host-eliminate': markDeparture(match, choice); break;
     case 'host-transfer-badge': transferBadge(match, choice); break;
     case 'direction': setSpeechDirection(match, choice); break;
-    case 'open-nomination': openNomination(match); break;
     case 'nominate': settleNomination(match, choice); break;
-    case 'open-exile': openExileVote(match); break;
+    case 'open-exile':
+      if (match.sheriff !== null && ['discussion', 'exile-open'].includes(match.phase)) openNomination(match);
+      else openExileVote(match);
+      break;
     case 'self-destruct': selfDestruct(match, player); break;
     case 'start-timer': match.timer = { deadline: now + choice * 1_000 }; break;
     case 'next-night': startRoomNight(room, rules); break;
