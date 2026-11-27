@@ -125,8 +125,8 @@ test('only the current host can advance an observed cue, and an accepted choice 
   assert.equal(result.nightCue, undefined);
 });
 
-test('a no-knife first night calls the wolves for private recognition and preserves their teammates at dawn', t => {
-  const { host, role, act, poll, play, nextCue } = table(t, 'custom', ['wolf', 'wolfKing', 'villager', 'villager'], {
+test('a no-knife first night waits for private wolf confirmation without a narrated timeout', t => {
+  const { host, role, act, poll, play, elapse } = table(t, 'custom', ['wolf', 'wolfKing', 'villager', 'villager'], {
     customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
   });
   const wolf = role('wolf');
@@ -135,13 +135,19 @@ test('a no-knife first night calls the wolves for private recognition and preser
   assertCue(opening, 1, 'wolf');
   assert.equal(opening.self.teammates, undefined);
   assert.deepEqual(poll(wolf).actions, [{
-    kind: 'night-action', action: 'wolf-recognition', options: ['confirm'], nightTimer: { waiting: true },
+    kind: 'night-action', action: 'wolf-recognition', options: ['confirm'],
   }]);
-  assert.throws(() => play(wolf, 'night-action', host.record.seat), { code: 'MATCH_ACTION' });
-  play(wolf, 'night-action', 'confirm');
+  poll(host, opening);
+  elapse(nightChoiceDuration * 3);
   assert.deepEqual(poll(host, opening), opening);
+  assert.equal(poll(king).actions[0].action, 'wolf-recognition');
+  assert.throws(() => play(wolf, 'night-action', host.record.seat), { code: 'MATCH_ACTION' });
+  assert.throws(() => play(host, 'night-action', 'confirm'), { code: 'MATCH_ACTION' });
+  play(wolf, 'night-action', 'confirm');
+  assert.deepEqual(poll(host, opening, false), opening);
+  assert.equal(poll(king).actions, undefined);
 
-  const dawn = nextCue(opening);
+  const dawn = poll(host, opening);
   assert.equal(dawn.phase, 'dawn');
   assert.equal(dawn.nightCue, undefined);
   assert.equal(dawn.self.teammates, undefined);

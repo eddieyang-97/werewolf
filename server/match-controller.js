@@ -88,7 +88,7 @@ function controls(match, player, host, rules, now, bot = false) {
       if (options.length) add('night-action', options, {
         action: kind,
         ...(kind === 'swap' ? { multiple: true } : {}),
-        ...(match.nightNarration ? { nightTimer: night.cueClock?.deadline !== undefined
+        ...(match.nightNarration && kind !== 'wolf-recognition' ? { nightTimer: night.cueClock?.deadline !== undefined
           ? { deadline: night.cueClock.deadline, serverNow: now }
           : night.cueClock ? { remaining: night.cueClock.remaining } : { waiting: true } } : {}),
       });

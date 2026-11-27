@@ -23,11 +23,15 @@ export function beginNight(match, order, rules) {
   advanceNight(match, rules);
 }
 
+function firstNightWolfRecognition(match) {
+  return match.board === 'custom' && match.round === 1 && match.customRules?.firstNightKnife === 'disabled';
+}
+
 function stepFor(match, position) {
   const { alive, wolves } = match.night;
   const players = alive.map(seat => playerAt(match, seat));
   if (position === 'knife') {
-    if (match.board === 'custom' && match.round === 1 && !wolves.length) {
+    if (firstNightWolfRecognition(match)) {
       return { kind: 'wolf-recognition', seats: players.filter(isPackWolf).map(player => player.seat) };
     }
     return { kind: 'knife', seats: wolves };
@@ -103,6 +107,7 @@ export function pauseNightCue(match, cutoff) {
 }
 
 export function nightChoiceExpired(match, now) {
+  if (match.night?.step?.kind === 'wolf-recognition') return false;
   const clock = match.night?.cueClock;
   return clock?.deadline === undefined ? clock?.remaining === 0 : now >= clock.deadline;
 }
@@ -122,6 +127,12 @@ export function progressNightCue(match, seen, rules, now) {
   const cue = currentNightCue(match);
   if (seen.round !== cue.round || seen.role !== cue.role) return false;
   const { night } = match;
+  // Keep this call open until a wolf has explicitly cleared the shared step.
+  if (cue.role === 'wolf' && firstNightWolfRecognition(match)) {
+    if (night.step) return false;
+    advanceNight(match, rules);
+    return true;
+  }
   const clock = night.cueClock ??= { remaining: nightChoiceDuration };
   if (clock.deadline === undefined && clock.remaining > 0) {
     clock.deadline = now + clock.remaining;

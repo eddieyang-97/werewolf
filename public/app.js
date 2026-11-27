@@ -991,7 +991,7 @@ function showHelp(tabName = 'basic') {
     .map(step => nightNames[step] ?? roles[step].name).join(' → ');
   const election = (lobby?.sheriffMode ?? info?.sheriffMode) === 'none' ? '' : '警长竞选、';
   const customNoKnife = (lobby?.customRules ?? info?.customRules)?.firstNightKnife === 'disabled';
-  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，跳过普通狼刀。</p>'
+  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，任意一名狼队成员点击「不击杀」后结束狼队回合。</p>'
     : boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : '';
   const pages = {
     basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
