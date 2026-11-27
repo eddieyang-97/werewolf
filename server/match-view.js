@@ -1,5 +1,5 @@
 import { canSelfDestruct } from './match-day.js';
-import { electionRoster } from './match-election.js';
+import { electionRoster, electionSpeechOpen } from './match-election.js';
 import { isPackWolf, playerAt, roster } from './match-state.js';
 import { fixedChoices, gunReport, nightChoiceExpired } from './night-actions.js';
 
@@ -8,8 +8,6 @@ export function publicSpeaker(match) {
     case 'last-words': return match.deathFlow.current.death.seat;
     case 'discussion': return match.day.order[match.day.speakerIndex];
     case 'exile-runoff-speech': return match.day.runoffSpeakers[match.day.runoffIndex];
-    case 'sheriff-speech':
-    case 'sheriff-runoff-speech': return match.election.speakers[match.election.speakerIndex];
     default: return null;
   }
 }
@@ -45,7 +43,7 @@ export function matchView(match, seat, now = Date.now()) {
     round: match.round,
     sheriff: match.sheriff,
     speaker: publicSpeaker(match),
-    timer: match.timer,
+    timer: electionSpeechOpen(match) ? undefined : match.timer,
     departed: match.players.filter(person => person.announced).map(person => person.seat),
     history: match.history,
   };
@@ -61,7 +59,7 @@ export function matchView(match, seat, now = Date.now()) {
   }
   const participation = electionRoster(match);
   if (participation) {
-    result.candidates = participation.candidates;
+    result.candidates = match.election.candidates;
     result.electionRoster = participation;
   }
   if (match.winner) {

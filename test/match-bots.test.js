@@ -130,7 +130,9 @@ test('bot-only sheriff voting stays open for a human interruption in both rounds
   play(1, 'open-election');
   for (const { seat, bot } of room.guests) play(seat, 'candidacy', !bot);
   for (const phase of ['sheriff-speech', 'sheriff-runoff-speech']) {
-    while (match.phase === phase) play(1, 'finish-speech');
+    assert.equal(progressBots(room, matchRules, 10_000, () => 1), false);
+    assert.equal(match.phase, phase);
+    play(1, 'open-sheriff-vote');
     const ballotPhase = phase.replace('speech', 'vote');
     const openedAt = phase === 'sheriff-speech' ? 0 : 10_000;
     const advance = (now, choose = () => assert.fail('bots must wait before rolling any action')) =>

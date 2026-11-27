@@ -1,5 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { executeMatchChoice, getBallot, interruptActions, seatActions } from './match-controller.js';
+import { electionSpeechOpen } from './match-election.js';
 import { playerAt } from './match-state.js';
 import { publicSpeaker } from './match-view.js';
 import { pendingVoters } from './match-vote.js';
@@ -59,8 +60,7 @@ export function progressBots(room, rules, now, choose = randomInt) {
     // Look for interrupts without building each bot's ordinary choices.
     if (interruptsCheckedFor !== match.window) {
       const decided = new Set(match.botInterrupts?.window === match.window ? match.botInterrupts.decided : []);
-      const candidates = new Set(['sheriff-speech', 'sheriff-runoff-speech'].includes(match.phase)
-        ? match.election.candidates : []);
+      const candidates = new Set(electionSpeechOpen(match) ? match.election.candidates : []);
       const interrupted = bots.some(bot => {
         if (decided.has(bot.seat)) return false;
         const optional = interruptActions(match, playerAt(match, bot.seat), candidates.has(bot.seat));

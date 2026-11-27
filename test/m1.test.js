@@ -930,7 +930,12 @@ describe('room HTTP', { concurrency: 4 }, () => {
     for (const [i, player] of players.entries()) {
       await choose(player, (await sync(player)).match, 'candidacy', i < 2);
     }
-    for (let i = 0; i < 2; i++) await choose(host, (await sync(host)).match, 'finish-speech');
+    base = await start(options);
+    const sheriffSpeech = (await sync(host)).match;
+    assert.equal(sheriffSpeech.phase, 'sheriff-speech');
+    assert.equal(sheriffSpeech.speaker, null);
+    assert.equal((await sync(remaining)).match.actions, undefined);
+    await choose(host, sheriffSpeech, 'open-sheriff-vote');
     await choose(players[2], (await sync(players[2])).match, 'vote', 1);
     const duringVote = (await sync(remaining)).match;
     assert.equal(duringVote.phase, 'sheriff-vote');
