@@ -4,7 +4,7 @@ import {
   settleNomination, transferBadge,
 } from './match-day.js';
 import {
-  advanceElectionSpeech, closeElectionVote, collectCandidacies, electionDue, electionOpen, startElection, withdrawCandidacy,
+  closeElectionVote, collectCandidacies, electionDue, electionOpen, openElectionVote, startElection, withdrawCandidacy,
 } from './match-election.js';
 import { createMatch, finishMatch, livingPlayers, playerAt } from './match-state.js';
 import { matchView, publicSpeaker } from './match-view.js';
@@ -103,7 +103,9 @@ function controls(match, player, host, rules, now, bot = false) {
     case 'sheriff-speech':
     case 'sheriff-runoff-speech':
       if (election.candidates.includes(seat)) add('withdraw');
-      // fall through to the common speech control
+      // Pages opened before the update can still display the generic 投票 label.
+      if (host) add('open-sheriff-vote', undefined, { action: 'vote' });
+      break;
     case 'last-words':
     case 'discussion':
     case 'exile-runoff-speech':
@@ -193,6 +195,7 @@ function applyChoice(room, player, kind, choice, rules, now) {
       break;
     }
     case 'open-election': startElection(match); break;
+    case 'open-sheriff-vote': openElectionVote(match); break;
     case 'candidacy':
       match.election.signups[player.seat] = choice;
       collectCandidacies(match);
@@ -200,8 +203,7 @@ function applyChoice(room, player, kind, choice, rules, now) {
     case 'withdraw': withdrawCandidacy(match, player.seat); break;
     case 'publish-night': publishNight(match); break;
     case 'finish-speech':
-      if (electionOpen(match)) advanceElectionSpeech(match);
-      else if (match.phase === 'last-words') advanceDeathFlow(match);
+      if (match.phase === 'last-words') advanceDeathFlow(match);
       else if (match.phase === 'exile-runoff-speech') advanceRunoff(match);
       else advanceDiscussion(match);
       break;

@@ -5,8 +5,8 @@ import {
   openExileVote, publishNight, resolveBadge, resolveGun, selfDestruct,
 } from '../server/match-day.js';
 import {
-  advanceElectionSpeech, closeElectionVote, collectCandidacies, electionDue,
-  interruptElection, startElection, withdrawCandidacy,
+  closeElectionVote, collectCandidacies, electionDue, interruptElection, openElectionVote,
+  startElection, withdrawCandidacy,
 } from '../server/match-election.js';
 import { createMatch, formalDeaths, playerAt, winningSide } from '../server/match-state.js';
 import { matchView } from '../server/match-view.js';
@@ -140,13 +140,13 @@ test('sheriff PK reverses the original order and differentiates first and runoff
   election.signups = Object.fromEntries(match.players.map(({ seat }) => [seat, seat <= 4]));
   collectCandidacies(match);
   assert.equal(withdrawCandidacy(match, 4), true);
-  while (match.phase === 'sheriff-speech') advanceElectionSpeech(match);
+  openElectionVote(match);
   assert.deepEqual(election.ballot.voters, [5, 6, 7, 8, 9, 10, 11, 12]);
   election.ballot.votes = { 5: 1, 6: 2, 7: 3 };
   closeElectionVote(match);
-  assert.deepEqual(election.speakers, election.order.filter(seat => seat !== 4).reverse());
+  assert.deepEqual(matchView(match, null).electionRoster.candidates, election.order.filter(seat => seat !== 4).reverse());
   assert.equal(withdrawCandidacy(match, 3), true);
-  while (match.phase === 'sheriff-runoff-speech') advanceElectionSpeech(match);
+  openElectionVote(match);
   assert.deepEqual(election.ballot.voters, [4, 5, 6, 7, 8, 9, 10, 11, 12]);
   assert.deepEqual(electionVoters([1, 2, 3, 4], election, true), [4]);
   election.ballot.votes = { 4: 1, 5: 2 };
@@ -168,7 +168,8 @@ test('sheriff competition can be postponed only once', () => {
   assert.equal(electionDue(match), true);
   match.round++;
   startElection(match);
-  assert.deepEqual(election.speakers, order);
+  assert.equal(match.phase, 'sheriff-speech');
+  assert.deepEqual(matchView(match, null).electionRoster.candidates, order);
   interruptElection(match, 2);
   assert.equal(electionDue(match), false);
   assert.equal(match.sheriff, null);
@@ -181,8 +182,7 @@ test('single self-destruct removes the badge even when one runoff candidate rema
   startElection(match);
   match.election.signups = Object.fromEntries(match.players.map(({ seat }) => [seat, seat === 1 || seat === 5]));
   collectCandidacies(match);
-  advanceElectionSpeech(match);
-  advanceElectionSpeech(match);
+  openElectionVote(match);
   match.election.ballot.votes = { 6: 1, 7: 5 };
   closeElectionVote(match);
   assert.equal(match.phase, 'sheriff-runoff-speech');

@@ -13,6 +13,10 @@ export function electionOpen(match) {
   return Object.values(phases).includes(match.phase);
 }
 
+export function electionSpeechOpen(match) {
+  return match.phase === phases.speech || match.phase === phases.runoffSpeech;
+}
+
 export function electionDue(match) {
   return match.sheriffMode !== 'none' && (match.election?.status === 'postponed' || (match.round === 1 && !match.election));
 }
@@ -30,7 +34,7 @@ export function electionRoster(match) {
   const runoff = match.phase === phases.runoffSpeech || match.phase === phases.runoffVote;
   const withdrew = runoff ? election.pkWithdrawn : election.entered.filter(seat => !candidates.includes(seat));
   return {
-    candidates,
+    candidates: runoff ? runoffOrder(election.order, candidates) : election.order.filter(seat => candidates.includes(seat)),
     voters: electionVoters(eligible, election, runoff),
     withdrawn: eligible.filter(seat => withdrew.includes(seat)),
   };
@@ -41,12 +45,6 @@ function settleElection(match, seat) {
   match.election.status = 'completed';
   addHistory(match, 'day', 'sheriff', { seat });
   changePhase(match, 'dawn');
-}
-
-function setSpeeches(match, seats, phase) {
-  match.election.speakers = seats;
-  match.election.speakerIndex = 0;
-  changePhase(match, phase);
 }
 
 export function startElection(match) {
@@ -68,9 +66,7 @@ export function startElection(match) {
   } else if ([phases.vote, phases.runoffVote].includes(election.resume)) {
     openElectionVote(match, election.resume === phases.runoffVote);
   } else {
-    const remaining = election.speakers.slice(election.speakerIndex).filter(seat => election.candidates.includes(seat));
-    if (remaining.length) setSpeeches(match, remaining, election.resume);
-    else openElectionVote(match, election.resume === phases.runoffSpeech);
+    changePhase(match, election.resume);
   }
 }
 
@@ -86,24 +82,11 @@ export function collectCandidacies(match) {
     settleElection(match, election.entered[0]);
   } else {
     election.order = randomSeatOrder(match, election.candidates);
-    setSpeeches(match, election.order.slice(), phases.speech);
+    changePhase(match, phases.speech);
   }
 }
 
-export function advanceElectionSpeech(match) {
-  const election = match.election;
-  election.speakerIndex++;
-  while (election.speakerIndex < election.speakers.length) {
-    if (election.candidates.includes(election.speakers[election.speakerIndex])) {
-      changePhase(match, match.phase);
-      return;
-    }
-    election.speakerIndex++;
-  }
-  openElectionVote(match, match.phase === phases.runoffSpeech);
-}
-
-function openElectionVote(match, runoff) {
+export function openElectionVote(match, runoff = match.phase === phases.runoffSpeech) {
   const election = match.election;
   const voters = electionVoters(electionEligible(match), election, runoff);
   election.ballot = { voters, votes: {} };
@@ -113,12 +96,10 @@ function openElectionVote(match, runoff) {
 
 export function withdrawCandidacy(match, seat) {
   const election = match.election;
-  const speaking = match.phase === phases.speech || match.phase === phases.runoffSpeech;
-  if (!speaking || !election.candidates.includes(seat)) return false;
+  if (!electionSpeechOpen(match) || !election.candidates.includes(seat)) return false;
   election.candidates = election.candidates.filter(candidate => candidate !== seat);
   if (match.phase === phases.runoffSpeech) election.pkWithdrawn.push(seat);
   if (election.candidates.length <= 1) settleElection(match, election.candidates[0] ?? null);
-  else if (seat === election.speakers[election.speakerIndex]) advanceElectionSpeech(match);
   return true;
 }
 
@@ -129,7 +110,7 @@ export function closeElectionVote(match) {
   addHistory(match, 'day', 'sheriff-vote', { counts, ballot, runoff });
   if (leaders.length > 1 && match.phase === phases.vote) {
     election.candidates = leaders;
-    setSpeeches(match, runoffOrder(election.order, leaders), phases.runoffSpeech);
+    changePhase(match, phases.runoffSpeech);
   } else {
     settleElection(match, leaders.length === 1 ? leaders[0] : null);
   }

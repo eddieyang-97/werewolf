@@ -543,7 +543,8 @@ for (const sheriffMode of ['double', 'single']) {
 
     if (sheriffMode === 'double') {
       play(host, 'open-election');
-      assert.deepEqual(match.election.speakers, order);
+      assert.equal(match.phase, 'sheriff-speech');
+      assert.deepEqual(controls(room, host).electionRoster.candidates, order);
       play(secondWolf, 'self-destruct');
       assert.equal(match.phase, 'next-night');
     } else {
@@ -838,7 +839,7 @@ test('individual ballots stay private until resolved, then publish voter groups 
   });
 });
 
-test('sheriff roster is public after signup and follows withdrawals and voter eligibility in each round', () => {
+test('the host opens each sheriff ballot after table speeches with the public roster', () => {
   const room = createRoom('custom', undefined, ['wolf', 'seer', ...Array(6).fill('villager')]);
   const [wolf, seer, firstWithdrawal, , runoffWithdrawal, voter, nightVictim, host] = room.guests;
   room.hostId = host.id;
@@ -847,9 +848,22 @@ test('sheriff roster is public after signup and follows withdrawals and voter el
   const checkRoster = (phase, candidates, voters, withdrawn) => {
     for (const view of [controls(room, host), controls(room, voter), spectator()]) {
       assert.equal(view.phase, phase);
-      assert.deepEqual(view.electionRoster, { candidates, voters, withdrawn });
+      const roster = view.electionRoster;
+      assert.deepEqual({ ...roster, candidates: roster.candidates.toSorted((a, b) => a - b) }, { candidates, voters, withdrawn });
       assert.deepEqual(view.departed, []);
+      assert.equal(view.speaker, null);
+      assert.equal(view.timer, undefined);
     }
+  };
+  const openBallot = () => {
+    const view = controls(room, host);
+    const { matchId, window } = view;
+    assert.deepEqual(view.actions, [{ kind: 'open-sheriff-vote', options: undefined, action: 'vote' }]);
+    for (const [guest, kind] of [[host, 'finish-speech'], [voter, 'open-sheriff-vote'], [firstWithdrawal, 'open-sheriff-vote']]) {
+      assert.equal(executeMatchChoice(room, guest, { matchId, window, kind }, matchRules), false);
+    }
+    play(host, 'open-sheriff-vote');
+    assert.equal(executeMatchChoice(room, host, { matchId, window, kind: 'open-sheriff-vote' }, matchRules), false);
   };
 
   startMatch(room, matchRules);
@@ -863,11 +877,12 @@ test('sheriff roster is public after signup and follows withdrawals and voter el
     assert.equal(view.candidates, undefined);
   }
   play(host, 'candidacy', false);
+  room.match.timer = { deadline: Date.now() + 30_000 }; // Timer saved by the previous version.
   checkRoster('sheriff-speech', [1, 2, 3, 4, 5], [6, 7, 8], []);
   play(firstWithdrawal, 'withdraw');
   checkRoster('sheriff-speech', [1, 2, 4, 5], [6, 7, 8], [3]);
 
-  while (room.match.phase === 'sheriff-speech') play(host, 'finish-speech');
+  openBallot();
   checkRoster('sheriff-vote', [1, 2, 4, 5], [6, 7, 8], [3]);
   assert.equal(controls(room, firstWithdrawal).actions?.some(action => action.kind === 'vote') ?? false, false);
   play(voter, 'vote', wolf.seat);
@@ -877,7 +892,8 @@ test('sheriff roster is public after signup and follows withdrawals and voter el
 
   checkRoster('sheriff-runoff-speech', [1, 2, 5], [3, 4, 6, 7, 8], []);
   play(runoffWithdrawal, 'withdraw');
-  while (room.match.phase === 'sheriff-runoff-speech') play(host, 'finish-speech');
+  checkRoster('sheriff-runoff-speech', [1, 2], [3, 4, 6, 7, 8], [5]);
+  openBallot();
   checkRoster('sheriff-runoff-vote', [1, 2], [3, 4, 6, 7, 8], [5]);
   assert.ok(controls(room, firstWithdrawal).actions?.some(action => action.kind === 'vote'));
   assert.equal(controls(room, runoffWithdrawal).actions?.some(action => action.kind === 'vote') ?? false, false);
@@ -909,13 +925,13 @@ test('host can close regular and runoff sheriff and exile ballots with only outs
   play(seer, 'night-action', wolf.seat);
   play(host, 'open-election');
   for (const guest of room.guests) play(guest, 'candidacy', guest === wolf || guest === otherWolf);
-  while (match.phase === 'sheriff-speech') play(host, 'finish-speech');
+  play(host, 'open-sheriff-vote');
   play(seer, 'vote', wolf.seat);
   play(voter, 'vote', otherWolf.seat);
   play(waiting, 'vote', null);
   const tie = [{ seat: wolf.seat, count: 1, voters: [seer.seat] }, { seat: otherWolf.seat, count: 1, voters: [voter.seat] }];
   checkClose('sheriff-vote', [host.seat], { groups: tie, abstained: [waiting.seat, host.seat] });
-  while (match.phase === 'sheriff-runoff-speech') play(host, 'finish-speech');
+  play(host, 'open-sheriff-vote');
   const eligible = [seer.seat, voter.seat, waiting.seat, host.seat];
   checkClose('sheriff-runoff-vote', eligible, { groups: [], abstained: eligible });
   assert.equal(match.sheriff, null);
