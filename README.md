@@ -47,3 +47,7 @@ For client/API changes, smoke-test the affected browser flow. For a milestone or
 The Blueprint configures a free web service and a free PostgreSQL database on Render's private network. The database keeps rooms available across web-service restarts. Render's free database expires 30 days after creation.
 
 Render handles deployments from `main`. The Blueprint sets auto-deploy to **After CI Checks Pass**. Verify this setting on the live service before relying on it to gate deployments.
+
+### Exile ballots during rollback
+
+Before rolling back to a revision that predates manual **开票**, let active rooms finish and publish their ordinary and PK exile ballots. On an older revision a room can stay in voting with a full ballot count and no result action. If that happens, redeploy a revision that supports manual **开票** using the same PostgreSQL database. The host can resume the same room and publish the saved votes.

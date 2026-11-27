@@ -239,10 +239,12 @@ export function executeMatchChoice(room, guest, command, rules, now) {
   if (!match || command.matchId !== match.id || command.window !== match.window) return false;
   const player = playerAt(match, guest.seat);
   const host = guest.id === room.hostId;
-  const action = seatActions(room, guest, rules, now).find(entry => entry.kind === command.kind)
+  // The final exile vote can arrive while the host's confirmed early close is in flight.
+  const action = seatActions(room, guest, rules, now).find(entry => entry.kind === command.kind
+    || (command.kind === 'close-vote' && entry.kind === 'reveal-exile-vote'))
     ?? (host && player ? recoveryControls(match).find(entry => entry.kind === command.kind) : undefined);
   if (!action || !validChoice(action, command.choice)) return false;
-  if (command.kind === 'rematch') {
+  if (action.kind === 'rematch') {
     delete room.match;
     room.dealt = false;
     for (const participant of room.guests) {
@@ -253,7 +255,7 @@ export function executeMatchChoice(room, guest, command, rules, now) {
       participant.acknowledged = false;
     }
   } else {
-    applyChoice(room, player, command.kind, command.choice, rules, now);
+    applyChoice(room, player, action.kind, command.choice, rules, now);
   }
   return true;
 }

@@ -41,10 +41,12 @@ export function progressBots(room, rules, now, choose = randomInt) {
   // Subsequent polls continue from the choices saved by this request.
   for (let count = 0; count < MAX_BOT_ACTIONS_PER_REQUEST && !match.winner; count++) {
     const speaker = publicSpeaker(match);
+    const firstRunoffCandidate = match.phase === 'exile-runoff-speech' ? match.day.runoffSpeakers[0] : null;
     const ballot = getBallot(match);
     const pending = ballot ? pendingVoters(ballot) : [];
-    // Base the pause on the ballot, so its timing never signals who can self-destruct.
-    if (botSeats.has(speaker) || (ballot?.election && pending.length && pending.every(seat => botSeats.has(seat)))) {
+    // Public speaking and ballot state determines the pause without signaling who can self-destruct.
+    if (botSeats.has(speaker ?? firstRunoffCandidate)
+      || (ballot?.election && pending.length && pending.every(seat => botSeats.has(seat)))) {
       if (match.botDelay?.window !== match.window) {
         match.botDelay = { window: match.window, endsAt: now + HUMAN_RESPONSE_DELAY };
         return true;

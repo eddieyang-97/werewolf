@@ -775,10 +775,22 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(ballot.voteProgress.expected, lineup.length);
     const lastSeat = seats.at(-1);
     for (const participant of participants.slice(0, -1)) await choose(participant, ballot, 'vote', lastSeat);
+    const { match: beforeLastVote } = await roomApi(base, code, host, 'sync');
+    assert.deepEqual(beforeLastVote.voteProgress.pending, [lastSeat]);
+    assert.ok(beforeLastVote.actions.some(entry => entry.kind === 'close-vote'));
+    const confirmedClose = { id: randomUUID(), type: 'match-choice',
+      matchId: beforeLastVote.matchId, window: beforeLastVote.window, kind: 'close-vote' };
     const { room: { match: afterVote } } = await choose(participants.at(-1), ballot, 'vote', null);
     assert.equal(afterVote.phase, 'exile-vote');
     assert.ok(afterVote.history.every(event => !event.ballot));
-    const { room: { match: revealed } } = await choose(host, ballot, 'reveal-exile-vote');
+    base = await start({ clock, matchRules });
+    const { match: readyToReveal } = await roomApi(base, code, host, 'resume');
+    assert.deepEqual(readyToReveal.voteProgress.pending, []);
+    assert.ok(readyToReveal.actions.some(entry => entry.kind === 'reveal-exile-vote'));
+    assert.equal((await action(base, code, participants.at(-1), confirmedClose, 409)).code, 'MATCH_ACTION');
+    const result = await action(base, code, host, confirmedClose);
+    assert.deepEqual(await action(base, code, host, confirmedClose), result);
+    const { room: { match: revealed } } = result;
     const published = revealed.history.find(event => event.kind === 'exile-vote');
     assert.deepEqual(published.ballot.groups, [{ seat: lastSeat, count: lastSeat - 1, voters: seats.slice(0, -1) }]);
     assert.deepEqual(published.ballot.abstained, [lastSeat]);

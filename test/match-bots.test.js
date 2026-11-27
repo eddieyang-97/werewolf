@@ -124,6 +124,31 @@ test('a large bot ballot builds choices in batches and resumes after a saved pol
   assert.deepEqual(ballot.abstained, [1]);
 });
 
+test('a wolf bot on the exile PK list waits before interrupting the runoff', () => {
+  const room = roomWithRoles(['villager', 'wolf', 'wolf', 'wolf', 'villager'], [1, 4, 5], 'none');
+  const { match } = room;
+  playChoice(room, 4, 'night-action', 'confirm');
+  playChoice(room, 1, 'publish-night');
+  playChoice(room, 1, 'open-exile');
+  for (const [index, target] of [2, 3, 2, 3, null].entries()) playChoice(room, index + 1, 'vote', target);
+  playChoice(room, 1, 'reveal-exile-vote');
+
+  const openedAt = 10_000;
+  assert.equal(progressBots(room, matchRules, openedAt, () => 0), true);
+  assert.equal(match.phase, 'exile-runoff-speech');
+  assert.equal(publicSpeaker(match), null);
+  const host = controllerView(match, 1, true, matchRules);
+  assert.deepEqual(host.exileRunoffCandidates.toSorted((a, b) => a - b), [2, 3]);
+  assert.ok(host.actions.some(action => action.kind === 'open-exile'));
+  const wolf = controllerView(match, 4, false, matchRules);
+  assert.ok(wolf.actions.some(action => action.kind === 'self-destruct'));
+  assert.equal(progressBots(room, matchRules, openedAt + 5_999, () => assert.fail('bots must still be waiting')), false);
+  assert.equal(match.phase, 'exile-runoff-speech');
+
+  assert.equal(progressBots(room, matchRules, openedAt + 6_000, () => 0), true);
+  assert.ok(match.history.some(event => event.kind === 'explosion' && [2, 3].includes(event.seat)));
+});
+
 test('bot-only sheriff voting stays open for a human interruption in both rounds', () => {
   const room = roomWithRoles(['wolf', 'villager', 'villager', 'villager'], [1, 2], 'single');
   const { match } = room;
