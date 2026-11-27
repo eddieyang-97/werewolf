@@ -838,6 +838,53 @@ test('individual ballots stay private until resolved, then publish voter groups 
   });
 });
 
+test('sheriff roster is public after signup and follows withdrawals and voter eligibility in each round', () => {
+  const room = createRoom('custom', undefined, ['wolf', 'seer', ...Array(6).fill('villager')]);
+  const [wolf, seer, firstWithdrawal, , runoffWithdrawal, voter, nightVictim, host] = room.guests;
+  room.hostId = host.id;
+  const play = (guest, kind, choice) => playAction(room, guest, kind, choice);
+  const spectator = () => controllerView(room.match, null, false, matchRules);
+  const checkRoster = (phase, candidates, voters, withdrawn) => {
+    for (const view of [controls(room, host), controls(room, voter), spectator()]) {
+      assert.equal(view.phase, phase);
+      assert.deepEqual(view.electionRoster, { candidates, voters, withdrawn });
+      assert.deepEqual(view.departed, []);
+    }
+  };
+
+  startMatch(room, matchRules);
+  play(wolf, 'night-action', nightVictim.seat);
+  play(seer, 'night-action', wolf.seat);
+  play(host, 'open-election');
+  for (const guest of room.guests.slice(0, -1)) play(guest, 'candidacy', guest.seat <= 5);
+  for (const view of [controls(room, host), controls(room, voter), spectator()]) {
+    assert.equal(view.phase, 'sheriff-signup');
+    assert.equal(view.electionRoster, undefined);
+    assert.equal(view.candidates, undefined);
+  }
+  play(host, 'candidacy', false);
+  checkRoster('sheriff-speech', [1, 2, 3, 4, 5], [6, 7, 8], []);
+  play(firstWithdrawal, 'withdraw');
+  checkRoster('sheriff-speech', [1, 2, 4, 5], [6, 7, 8], [3]);
+
+  while (room.match.phase === 'sheriff-speech') play(host, 'finish-speech');
+  checkRoster('sheriff-vote', [1, 2, 4, 5], [6, 7, 8], [3]);
+  assert.equal(controls(room, firstWithdrawal).actions?.some(action => action.kind === 'vote') ?? false, false);
+  play(voter, 'vote', wolf.seat);
+  checkRoster('sheriff-vote', [1, 2, 4, 5], [6, 7, 8], [3]);
+  play(nightVictim, 'vote', seer.seat);
+  play(host, 'vote', runoffWithdrawal.seat);
+
+  checkRoster('sheriff-runoff-speech', [1, 2, 5], [3, 4, 6, 7, 8], []);
+  play(runoffWithdrawal, 'withdraw');
+  while (room.match.phase === 'sheriff-runoff-speech') play(host, 'finish-speech');
+  checkRoster('sheriff-runoff-vote', [1, 2], [3, 4, 6, 7, 8], [5]);
+  assert.ok(controls(room, firstWithdrawal).actions?.some(action => action.kind === 'vote'));
+  assert.equal(controls(room, runoffWithdrawal).actions?.some(action => action.kind === 'vote') ?? false, false);
+  play(host, 'close-vote');
+  assert.equal(spectator().electionRoster, undefined);
+});
+
 test('host can close regular and runoff sheriff and exile ballots with only outstanding seats abstaining', () => {
   const room = createRoom('custom', undefined, ['wolf', 'wolf', 'seer', 'villager', 'villager', 'villager']);
   const [wolf, otherWolf, seer, voter, waiting, host] = room.guests;
