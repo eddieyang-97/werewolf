@@ -75,7 +75,7 @@ function seatList(seats) {
 }
 
 export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable } = {}) {
-  const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
+  const { phase, round, speaker, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const { electionRoster } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
@@ -101,10 +101,10 @@ export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, s
     ${electionRoster ? `<p>警上：${seatList(electionRoster.candidates)}</p>
       <p>警下：${seatList(electionRoster.voters)}</p>
       <p>已退水：${seatList(electionRoster.withdrawn)}</p>` : ''}
+    ${match.exileRunoffCandidates?.length ? `<p>PK：${seatList(match.exileRunoffCandidates)}</p>` : ''}
     ${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
-    ${sheriff ? `<p>${sheriff}号持有警徽</p>` : ''}
     ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
     ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
     ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}

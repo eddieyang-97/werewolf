@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  advanceDeathFlow, advanceDiscussion, advanceRunoff, canSelfDestruct, closeExileVote,
+  advanceDeathFlow, advanceDiscussion, canSelfDestruct, closeExileVote,
   openExileVote, publishNight, resolveBadge, resolveGun, selfDestruct,
 } from '../server/match-day.js';
 import {
@@ -202,8 +202,8 @@ test('exile vote tie enters reverse-order PK and a second tie leaves everyone in
   closeExileVote(match);
   assert.deepEqual(match.day.runoffSpeakers, [2, 1]);
   assert.equal(canSelfDestruct(match, playerAt(match, 1)), true);
-  advanceRunoff(match);
-  advanceRunoff(match);
+  openExileVote(match);
+  assert.deepEqual(match.day.ballot.targets, [1, 2]);
   assert.equal(canSelfDestruct(match, playerAt(match, 1)), false);
   match.day.ballot.votes = { 3: 1, 4: 2 };
   closeExileVote(match);

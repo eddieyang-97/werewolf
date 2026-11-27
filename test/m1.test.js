@@ -279,7 +279,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal((await roomApi(base, code, host, 'resume', {}, 404)).code, 'ROOM_GONE');
   }, { postgres: true, persistent: true });
 
-  roomTest('a human player has time to see and interrupt the first bot runoff speech', async start => {
+  roomTest('a runoff with bot candidates waits for the host and can still be interrupted by a player', async start => {
     let now = Date.now();
     const players = Array.from({ length: 2 }, browser);
     const [host, wolf] = players;
@@ -303,7 +303,6 @@ describe('room HTTP', { concurrency: 4 }, () => {
       assert.ok(executeMatchChoice(room, guests[seat - 1], command(room.match, kind, choice), matchRules, now));
     play(2, 'night-action', 'confirm');
     play(1, 'publish-night');
-    while (room.match.phase === 'discussion') play(1, 'finish-speech');
     play(1, 'open-exile');
     play(2, 'vote', 3);
     play(3, 'vote', 4);
@@ -316,10 +315,13 @@ describe('room HTTP', { concurrency: 4 }, () => {
     now += 100;
     const opened = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
     assert.equal(opened.phase, 'exile-runoff-speech');
-    assert.ok([3, 4].includes(opened.speaker));
+    assert.equal(opened.speaker, null);
+    assert.deepEqual(opened.exileRunoffCandidates.toSorted((a, b) => a - b), [3, 4]);
+    assert.deepEqual(opened.actions.map(entry => entry.kind), ['open-exile']);
+    assert.equal((await action(base, code, wolf, command(opened, 'open-exile'), 409)).code, 'MATCH_ACTION');
 
     let seen;
-    for (const elapsed of [1_700, 1_800]) {
+    for (const elapsed of [1_700, 1_800, 6_000]) {
       now += elapsed;
       seen = await sync(wolf);
       assert.equal(seen.phase, 'exile-runoff-speech');

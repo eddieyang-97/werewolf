@@ -1,5 +1,5 @@
 import {
-  advanceDeathFlow, advanceDiscussion, advanceRunoff, canSelfDestruct, closeExileVote, duelTargets, markDeparture,
+  advanceDeathFlow, advanceDiscussion, canSelfDestruct, closeExileVote, duelTargets, markDeparture,
   openExileVote, openNomination, publishNight, resolveBadge, resolveDuel, resolveGun, selfDestruct, setSpeechDirection,
   settleNomination, transferBadge,
 } from './match-day.js';
@@ -114,8 +114,14 @@ function controls(match, player, host, rules, now, bot = false) {
       break;
     case 'last-words':
     case 'discussion':
-    case 'exile-runoff-speech':
       if (host || (bot && speaker === seat)) add('finish-speech');
+      if (phase === 'last-words') break;
+      // The host can also move on directly after the table has finished speaking.
+    case 'exile-open':
+      if (host) {
+        if (match.sheriff !== null) add('open-nomination');
+        add('open-exile');
+      }
       break;
     case 'gun':
       if (match.deathFlow.current.death.seat === seat) {
@@ -128,13 +134,11 @@ function controls(match, player, host, rules, now, bot = false) {
     case 'speech-direction':
       if (match.sheriff === seat) add('direction', [-1, 1]);
       break;
-    case 'exile-open':
-      if (host) add(match.sheriff === null ? 'open-exile' : 'open-nomination');
-      break;
     case 'nomination':
       if (match.sheriff === seat) add('nominate', living(), { multiple: true });
       break;
     case 'exile-locked':
+    case 'exile-runoff-speech':
       if (host) add('open-exile');
       break;
     case 'next-night':
@@ -210,7 +214,6 @@ function applyChoice(room, player, kind, choice, rules, now) {
     case 'publish-night': publishNight(match); break;
     case 'finish-speech':
       if (match.phase === 'last-words') advanceDeathFlow(match);
-      else if (match.phase === 'exile-runoff-speech') advanceRunoff(match);
       else advanceDiscussion(match);
       break;
     case 'shoot': resolveGun(match, choice); break;
