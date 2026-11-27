@@ -22,6 +22,20 @@ export function electionEligible(match) {
   return match.players.filter(player => !player.announced).map(player => player.seat);
 }
 
+export function electionRoster(match) {
+  if (!electionOpen(match) || match.phase === phases.signup) return;
+  const election = match.election;
+  const { candidates } = election;
+  const eligible = electionEligible(match);
+  const runoff = match.phase === phases.runoffSpeech || match.phase === phases.runoffVote;
+  const withdrew = runoff ? election.pkWithdrawn : election.entered.filter(seat => !candidates.includes(seat));
+  return {
+    candidates,
+    voters: electionVoters(eligible, election, runoff),
+    withdrawn: eligible.filter(seat => withdrew.includes(seat)),
+  };
+}
+
 function settleElection(match, seat) {
   match.sheriff = seat;
   match.election.status = 'completed';

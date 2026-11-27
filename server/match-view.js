@@ -1,5 +1,5 @@
 import { canSelfDestruct } from './match-day.js';
-import { electionOpen } from './match-election.js';
+import { electionRoster } from './match-election.js';
 import { isPackWolf, playerAt, roster } from './match-state.js';
 import { fixedChoices, gunReport, nightChoiceExpired } from './night-actions.js';
 
@@ -59,7 +59,11 @@ export function matchView(match, seat, now = Date.now()) {
       ...privateNight(match, player, now),
     };
   }
-  if (electionOpen(match) && match.phase !== 'sheriff-signup') result.candidates = match.election.candidates;
+  const participation = electionRoster(match);
+  if (participation) {
+    result.candidates = participation.candidates;
+    result.electionRoster = participation;
+  }
   if (match.winner) {
     result.winner = match.winner;
     if (match.forced) result.forced = true;
