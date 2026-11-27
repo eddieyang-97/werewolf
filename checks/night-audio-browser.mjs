@@ -9,20 +9,19 @@ import { nightChoiceDuration } from '../server/night-actions.js';
 import { createRooms, tokenKey } from '../server/rooms.js';
 import { openStore } from '../server/store.js';
 
-async function game(t) {
+async function game(t, { lineup = ['villager', 'guard', 'wolf'], customRules } = {}) {
   let now = Date.now();
   const clock = () => now;
   const code = 'ABCDEF';
   const store = openStore(':memory:');
   const rooms = createRooms(store, clock, matchRules);
-  const lineup = ['villager', 'guard', 'wolf'];
   const players = lineup.map((role, index) => {
     const token = randomBytes(32).toString('hex');
     return { token, guest: { key: tokenKey(token), id: randomUUID(), tab: randomUUID(), name: `玩家${index + 1}`,
       seat: index + 1, lastSeen: now, assignment: { role }, avatar: null, revealed: true, acknowledged: true, receipts: [] } };
   });
   const [host, guard] = players;
-  store.create({ code, board: 'custom', lineup, hostId: host.guest.id, guests: players.map(player => player.guest),
+  store.create({ code, board: 'custom', lineup, customRules, hostId: host.guest.id, guests: players.map(player => player.guest),
     dealt: true, expiresAt: now + 86_400_000 }, host.guest.key, now);
   const app = createApp(store, { clock, matchRules }).listen(0, '127.0.0.1');
   t.after(async () => {
@@ -56,6 +55,26 @@ function syncResponse(page, matches) {
   return page.waitForResponse(response => response.url().endsWith('/sync') && matches(response.request().postDataJSON()))
     .then(response => response.json());
 }
+
+test('only a wolf can confirm 不击杀 in the first-night wolf turn', { timeout: 30_000 }, async t => {
+  const { host, players, playerPage, url } = await game(t, {
+    lineup: ['villager', 'wolf', 'wolfKing', 'villager'],
+    customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
+  });
+  const [hostPage, wolfPage] = await Promise.all([playerPage(host), playerPage(players[1])]);
+  await Promise.all([hostPage.goto(url), wolfPage.goto(url)]);
+  await hostPage.locator('[data-action=confirm-start]').click();
+  await hostPage.locator('[data-action=start-match]').click();
+
+  const noKill = page => page.getByRole('button', { name: '不击杀', exact: true });
+  await noKill(wolfPage).waitFor();
+  await wolfPage.getByText('狼队同伴：3号', { exact: true }).waitFor();
+  assert.equal(await noKill(hostPage).count(), 0);
+  assert.equal(await wolfPage.locator('[data-night-action-clock]').count(), 0);
+  await noKill(wolfPage).click();
+  await wolfPage.getByText('等待公布昨夜信息', { exact: true }).waitFor();
+  assert.equal(await noKill(wolfPage).count(), 0);
+});
 
 test('the host finishes a delayed wake-up call before the full action window begins', { timeout: 30_000 }, async t => {
   const { code, host, guard, rooms, elapse, playerPage, url } = await game(t);

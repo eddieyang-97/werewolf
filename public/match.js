@@ -29,7 +29,7 @@ const labels = {
   'start-timer': '开始倒计时',
   'host-eliminate': '标记出局', 'host-transfer-badge': '移交警徽',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
-  'wolf-recognition': '狼队相认',
+  'wolf-recognition': '不击杀',
   learn: '机械狼学习身份', medium: '通灵师查验', seer: '预言家查验', dreamer: '摄梦人选择目标',
   mixed: '混血儿选择榜样', 'mechanical-guard': '机械守卫', 'mechanical-poison': '机械女巫',
   poison: '毒师请选择目标', 'extra-knife': '机械狼额外刀', 'gun-check': '查看枪态',
@@ -112,13 +112,16 @@ export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, s
     ${seatVote ? '<p class="vote-instruction">请点击可投票的座位</p>' : ''}
     <div class="match-actions">${seatVote?.options.includes(null) ? button('弃票', 'confirm-vote', {
       value: matchCommand(match, 'vote', null), disabled: !connected,
-    }) : ''}${activeActions.map(entry => entry.kind === 'candidacy'
-      ? entry.options.map(choice => button(choiceLabel(choice, entry), 'match-send', {
+    }) : ''}${activeActions.map(entry => {
+      if (entry.kind === 'candidacy') return entry.options.map(choice => button(choiceLabel(choice, entry), 'match-send', {
         value: matchCommand(match, entry.kind, choice), disabled: !connected,
-      })).join('')
-      : button(matchLabel(entry), 'match-control', {
-        value: matchCommand(match, entry.kind), disabled: !connected, variant: entry.kind === 'night-action' ? 'night-action' : 'primary',
-      })).join('')}</div>
+      })).join('');
+      const wolfRecognition = entry.action === 'wolf-recognition';
+      return button(matchLabel(entry), wolfRecognition ? 'match-send' : 'match-control', {
+        value: matchCommand(match, entry.kind, wolfRecognition ? entry.options[0] : undefined),
+        disabled: !connected, variant: entry.kind === 'night-action' ? 'night-action' : 'primary',
+      });
+    }).join('')}</div>
     ${privateResults ? `<details><summary>我的查验记录</summary><ul>${privateResults}</ul></details>` : ''}
     ${cards ? `<ul class="match-roster">${cards}</ul>` : ''}
     ${button('对局详情', 'match-history', { variant: 'quiet' })}
