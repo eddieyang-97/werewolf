@@ -107,7 +107,6 @@ export function pauseNightCue(match, cutoff) {
 }
 
 export function nightChoiceExpired(match, now) {
-  if (match.night?.step?.kind === 'wolf-recognition') return false;
   const clock = match.night?.cueClock;
   return clock?.deadline === undefined ? clock?.remaining === 0 : now >= clock.deadline;
 }
@@ -128,7 +127,7 @@ export function progressNightCue(match, seen, rules, now) {
   if (seen.round !== cue.round || seen.role !== cue.role) return false;
   const { night } = match;
   // Keep this call open until a wolf has explicitly cleared the shared step.
-  if (cue.role === 'wolf' && firstNightWolfRecognition(match)) {
+  if (cue.role === 'wolf' && match.round === 1 && match.untimedWolfRecognition) {
     if (night.step) return false;
     advanceNight(match, rules);
     return true;

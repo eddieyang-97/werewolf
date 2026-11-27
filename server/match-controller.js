@@ -24,7 +24,12 @@ function startRoomNight(room, rules) {
 export function startMatch(room, rules, nightNarration = false) {
   const seated = room.guests.filter(guest => guest.seat !== null);
   room.match = createMatch(room.board, seated, room.sheriffMode, room.customRules);
-  if (nightNarration) room.match.nightNarration = true;
+  if (nightNarration) {
+    room.match.nightNarration = true;
+    if (room.board === 'custom' && room.customRules?.firstNightKnife === 'disabled' && !seated.some(guest => guest.bot === true)) {
+      room.match.untimedWolfRecognition = true;
+    }
+  }
   startRoomNight(room, rules);
 }
 
@@ -85,10 +90,11 @@ function controls(match, player, host, rules, now, bot = false) {
       const { kind } = night.step;
       const fixed = fixedChoices(match, player, kind);
       const options = fixed ?? rules.nightChoices(match, player, kind);
+      const untimed = kind === 'wolf-recognition' && match.untimedWolfRecognition;
       if (options.length) add('night-action', options, {
         action: kind,
         ...(kind === 'swap' ? { multiple: true } : {}),
-        ...(match.nightNarration && kind !== 'wolf-recognition' ? { nightTimer: night.cueClock?.deadline !== undefined
+        ...(match.nightNarration && !untimed ? { nightTimer: night.cueClock?.deadline !== undefined
           ? { deadline: night.cueClock.deadline, serverNow: now }
           : night.cueClock ? { remaining: night.cueClock.remaining } : { waiting: true } } : {}),
       });

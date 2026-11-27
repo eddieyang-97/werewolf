@@ -172,7 +172,7 @@ test('a muted host on match history cannot acknowledge a cue received behind it'
   assert.equal((await syncResponse(page, body => body.seenNightCue?.role === 'wolf')).match.nightCue.role, 'wolf');
 });
 
-test('an eligible player sees the live and paused timer and the dialog closes at expiry', { timeout: 30_000 }, async t => {
+test('an eligible player sees the timer continue through a disconnect and the dialog closes at expiry', { timeout: 30_000 }, async t => {
   const { code, host, guard, players, rooms, elapse, playerPage, url } = await game(t);
   const wolf = players[2];
   const { room: { match: { nightCue } } } = rooms.action(code, host.token, host.guest.tab, {
@@ -194,13 +194,12 @@ test('an eligible player sees the live and paused timer and the dialog closes at
   await timer.filter({ hasText: /^剩余 00:20$/ }).waitFor();
   elapse(8_000);
   rooms.disconnect(code, wolf.token, wolf.guest.tab);
-  await timer.filter({ hasText: /^剩余 00:12（暂停）$/ }).waitFor();
-  await page.evaluate(() => { window.actionTimerOffset += 20_000; });
-  assert.equal(await timer.textContent(), '剩余 00:12（暂停）');
-
-  rooms.sync(code, wolf.token, wolf.guest.tab);
-  ack();
-  await timer.filter({ hasText: /^剩余 00:12$/ }).waitFor();
+  const synced = syncResponse(page, () => true);
+  await page.evaluate(() => { window.actionTimerOffset += 8_000; });
+  const { match } = await synced;
+  const { deadline, serverNow } = match.actions[0].nightTimer;
+  assert.equal(deadline - serverNow, 12_000);
+  await timer.filter({ hasText: /^剩余 00:1[012]$/ }).waitFor();
   // Verify local expiry while the browser is still waiting for its next snapshot.
   await page.route(`**/api/rooms/${code}/sync`, () => {});
   await page.evaluate(() => { window.actionTimerOffset += 12_000; });

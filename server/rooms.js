@@ -91,15 +91,6 @@ function isOnline(guest, now) {
   return guest && (guest.bot === true || (guest.lastSeen !== null && now - guest.lastSeen < ONLINE_WINDOW));
 }
 
-function nightPresenceCutoff(room, now) {
-  const { match } = room;
-  if (!match?.nightNarration || match.phase !== 'night') return;
-  const departed = new Set(match.players.filter(player => player.announced).map(player => player.seat));
-  // Only public seat presence may interrupt the shared clock.
-  const offline = room.guests.filter(guest => guest.seat !== null && !departed.has(guest.seat) && !isOnline(guest, now));
-  if (offline.length) return Math.min(...offline.map(guest => guest.lastSeen === null ? now : guest.lastSeen + ONLINE_WINDOW));
-}
-
 function refreshPresence(room, guest, now) {
   if (guest.seat !== null && !isOnline(guest, now)) clearReplacementRequests(room, guest.id);
   guest.lastSeen = now;
@@ -463,8 +454,6 @@ export function createRooms(store, clock = Date.now, matchRules) {
         } else {
           seesTab(guest, tab);
         }
-        const cutoff = nightPresenceCutoff(room, now);
-        if (cutoff !== undefined) pauseNightCue(room.match, cutoff);
         refreshPresence(room, guest, now);
         return { changed: true, value: { ...snapshot(room, guest, now, matchRules), profile: ownProfile(guest) } };
       });
@@ -476,8 +465,6 @@ export function createRooms(store, clock = Date.now, matchRules) {
       return withRoom(code, (room, now) => {
         const guest = guestFor(room, key);
         if (!takeControl) seesTab(guest, tab);
-        const cutoff = nightPresenceCutoff(room, now);
-        const cuePaused = cutoff !== undefined && pauseNightCue(room.match, cutoff);
         const timerChanged = refreshMatchTimer(room, now);
         const presenceChanged = guest.tab !== tab || guest.lastSeen === null || now - guest.lastSeen >= HEARTBEAT_INTERVAL;
         if (presenceChanged) {
@@ -485,7 +472,6 @@ export function createRooms(store, clock = Date.now, matchRules) {
           refreshPresence(room, guest, now);
         }
         const cueChecked = !takeControl && guest.id === room.hostId && matchRules && nightCuePlaybackComplete === true
-          && nightPresenceCutoff(room, now) === undefined
           && progressNightCue(room.match, seenNightCue, matchRules, now);
         const botsChanged = room.match && matchRules && progressBots(room, matchRules, now);
         const timerResumed = refreshMatchTimer(room, now);
@@ -493,7 +479,7 @@ export function createRooms(store, clock = Date.now, matchRules) {
         if (includeProfile || (validId(pendingAvatarId) && guest.avatarActionId === pendingAvatarId)) {
           value.profile = ownProfile(guest);
         }
-        return { changed: presenceChanged || timerChanged || timerResumed || cuePaused || cueChecked || botsChanged, value };
+        return { changed: presenceChanged || timerChanged || timerResumed || cueChecked || botsChanged, value };
       });
     },
 
@@ -505,8 +491,6 @@ export function createRooms(store, clock = Date.now, matchRules) {
         if (guest.tab !== tab) return { value: {} };
         refreshMatchTimer(room, now);
         guest.lastSeen = null;
-        const cutoff = nightPresenceCutoff(room, now);
-        if (cutoff !== undefined) pauseNightCue(room.match, cutoff);
         refreshMatchTimer(room, now);
         if (!room.guests.some(item => !item.bot && isOnline(item, now))) room.expiresAt = now + RETENTION;
         return { changed: true, value: {} };
@@ -538,8 +522,6 @@ export function createRooms(store, clock = Date.now, matchRules) {
         }
         const previous = guest.receipts.find(receipt => receipt.id === command.id);
         if (previous && previous.signature !== signature) roomError(409, 'ACTION_ID', '此操作凭证已被使用。');
-        const cutoff = nightPresenceCutoff(room, now);
-        if (cutoff !== undefined) pauseNightCue(room.match, cutoff);
         refreshMatchTimer(room, now);
         refreshPresence(room, guest, now);
         if (!previous) {

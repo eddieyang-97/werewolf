@@ -125,8 +125,8 @@ test('only the current host can advance an observed cue, and an accepted choice 
   assert.equal(result.nightCue, undefined);
 });
 
-test('a no-knife first night waits for private wolf confirmation without a narrated timeout', t => {
-  const { host, role, act, poll, play, elapse } = table(t, 'custom', ['wolf', 'wolfKing', 'villager', 'villager'], {
+test('an untimed wolf call advances after confirmation and playback with another seat offline', t => {
+  const { host, role, act, poll, play, elapse, disconnect, players } = table(t, 'custom', ['wolf', 'wolfKing', 'villager', 'villager'], {
     customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
   });
   const wolf = role('wolf');
@@ -143,6 +143,7 @@ test('a no-knife first night waits for private wolf confirmation without a narra
   assert.equal(poll(king).actions[0].action, 'wolf-recognition');
   assert.throws(() => play(wolf, 'night-action', host.record.seat), { code: 'MATCH_ACTION' });
   assert.throws(() => play(host, 'night-action', 'confirm'), { code: 'MATCH_ACTION' });
+  disconnect(players.at(-1));
   play(wolf, 'night-action', 'confirm');
   assert.deepEqual(poll(host, opening, false), opening);
   assert.equal(poll(king).actions, undefined);
@@ -152,6 +153,34 @@ test('a no-knife first night waits for private wolf confirmation without a narra
   assert.equal(dawn.nightCue, undefined);
   assert.equal(dawn.self.teammates, undefined);
   assert.deepEqual(poll(king).self.teammates, [wolf.record.seat]);
+});
+
+test('the first-night wolf call has the same duration for human and bot wolves in practice rooms', async t => {
+  const scenarios = [
+    { name: 'bot confirms', otherHuman: 'seer', bot: 'wolf' },
+    { name: 'human confirms early', otherHuman: 'wolf', bot: 'seer', confirm: true },
+    { name: 'human leaves the choice unanswered', otherHuman: 'wolf', bot: 'seer' },
+  ];
+  for (const { name, otherHuman, bot, confirm } of scenarios) {
+    await t.test(name, caseTest => {
+      const { host, role, act, poll, play, elapse } = table(caseTest, 'custom', ['villager', otherHuman, bot, 'hunter'], {
+        customRules: { firstNightKnife: 'disabled' }, bots: [bot, 'hunter'],
+      });
+      const opening = act(host, 'match-start', { nightNarration: true });
+      assertCue(opening, 1, 'wolf');
+      assertCue(poll(host, opening), 1, 'wolf');
+      if (otherHuman === 'wolf') {
+        const action = poll(role('wolf')).actions[0];
+        assert.equal(action.action, 'wolf-recognition');
+        assert.equal(action.nightTimer.deadline - action.nightTimer.serverNow, nightChoiceDuration);
+        if (confirm) play(role('wolf'), 'night-action', 'confirm');
+      }
+      elapse(nightChoiceDuration - 1);
+      assertCue(poll(host, opening), 1, 'wolf');
+      elapse(1);
+      assertCue(poll(host, opening), 1, 'seer');
+    });
+  }
 });
 
 test('late delivery and unfinished speech cannot use up the first cue window', t => {
@@ -173,7 +202,7 @@ test('late delivery and unfinished speech cannot use up the first cue window', t
 
 test('bots take their narrated turns without closing a cue or taking a shared choice from a human', t => {
   const { host, role, act, poll, play, nextCue, state } = table(t, 'custom',
-    ['guard', 'wolf', 'wolfKing', 'seer', 'hunter', 'villager'], { bots: ['guard', 'wolf', 'seer'] });
+    ['guard', 'wolfBeauty', 'wolfKing', 'seer', 'hunter', 'villager'], { bots: ['guard', 'wolfBeauty', 'seer'] });
   const wolfKing = role('wolfKing');
   const guard = act(host, 'match-start', { nightNarration: true });
   assertCue(guard, 1, 'guard');
@@ -185,7 +214,11 @@ test('bots take their narrated turns without closing a cue or taking a shared ch
   play(wolfKing, 'night-action', null);
   assertCue(poll(host), 1, 'wolf');
 
-  const seer = nextCue(wolf);
+  // Wolf Beauty shares the knife but cannot randomly self-destruct at dawn.
+  const charm = nextCue(wolf);
+  assertCue(charm, 1, 'wolfBeauty');
+  assert.equal(state().night.step, null);
+  const seer = nextCue(charm);
   assertCue(seer, 1, 'seer');
   assert.equal(state().night.step, null); // The newly opened cue was processed in the same sync.
   const botSeer = state().players.find(player => player.seat === role('seer').record.seat);
@@ -199,41 +232,55 @@ test('bots take their narrated turns without closing a cue or taking a shared ch
   assert.equal(nextCue(hunter).phase, 'dawn');
 });
 
-test('an offline unrelated seat pauses the window, and an unanswered required choice falls back at expiry', t => {
-  const { host, role, act, poll, nextCue, elapse, disconnect, players } =
+test('a disconnected seat leaves the night deadline intact and can reconnect before expiry', t => {
+  const { host, role, act, poll, play, elapse, disconnect, players } =
     table(t, 'custom', ['wolf', 'seer', 'villager', 'villager']);
+  const wolf = role('wolf');
+  const first = act(host, 'match-start', { nightNarration: true });
+  poll(host, first);
+  const { window, actions: [{ nightTimer: { deadline } }] } = poll(wolf);
+  elapse(8_000);
+  disconnect(wolf);
+  elapse(5_000, players.filter(player => player !== wolf));
+  assertCue(poll(host, first), 1, 'wolf');
+  const rejoined = poll(wolf);
+  assert.equal(rejoined.window, window);
+  assert.deepEqual(rejoined.actions[0].nightTimer, { deadline, serverNow: deadline - 7_000 });
+  play(wolf, 'night-action', null);
+  elapse(7_000);
+  assertCue(poll(host, first), 1, 'seer');
+});
+
+test('the night continues past offline seats and resolves an unanswered required choice once', t => {
+  const { host, role, act, poll, elapse, disconnect, players, restart } =
+    table(t, 'custom', ['wolf', 'seer', 'villager', 'villager'], { persistent: true });
   const seer = role('seer');
   const villager = players.find(player => player !== host && player.record.assignment.role === 'villager');
   const first = act(host, 'match-start', { nightNarration: true });
-  const cue = nextCue(first);
+  disconnect(villager);
+  const online = players.filter(player => player !== villager);
+  assertCue(poll(host, first), 1, 'wolf');
+  elapse(nightChoiceDuration, online);
+  const cue = poll(host, first);
   assertCue(cue, 1, 'seer');
   const { matchId, window, actions: [action] } = poll(seer);
 
   poll(host, cue);
-  elapse(8_000);
-  const running = poll(seer).actions[0].nightTimer;
-  assert.equal(running.deadline - running.serverNow, nightChoiceDuration - 8_000);
-  assert.equal(poll(villager).actions, undefined);
-  disconnect(villager);
-  elapse(nightChoiceDuration * 3, players.filter(player => player !== villager));
+  const stillOnline = online.filter(player => player !== seer);
+  elapse(nightChoiceDuration - 1, stillOnline);
+  restart();
   assertCue(poll(host, cue), 1, 'seer');
-  assert.equal(poll(seer).window, window);
-  assert.deepEqual(poll(seer).actions[0].nightTimer, { remaining: nightChoiceDuration - 8_000 });
-  poll(villager);
-  poll(host, cue);
-  elapse(nightChoiceDuration - 8_000 - 1);
-  assertCue(poll(host, cue), 1, 'seer');
-  const finalTick = poll(seer).actions[0].nightTimer;
-  assert.equal(finalTick.deadline - finalTick.serverNow, 1);
-  elapse(1);
-  assert.equal(poll(seer).actions, undefined);
-  assert.equal(poll(seer).window, undefined);
-  assert.throws(() => act(seer, 'match-choice', { matchId, window, kind: 'night-action', choice: action.options[0] }),
-    { code: 'MATCH_ACTION' });
+  elapse(1, stillOnline);
   const dawn = poll(host, cue);
   assert.equal(dawn.phase, 'dawn');
+  assert.deepEqual(poll(host, cue), dawn);
   assert.deepEqual(dawn.self.inspections, []);
-  const [result] = poll(seer).self.inspections;
+  const rejoined = poll(seer);
+  assert.equal(rejoined.actions, undefined);
+  assert.equal(rejoined.window, undefined);
+  assert.throws(() => act(seer, 'match-choice', { matchId, window, kind: 'night-action', choice: action.options[0] }),
+    { code: 'MATCH_ACTION' });
+  const [result] = rejoined.self.inspections;
   assert.equal(result.kind, 'seer');
   assert.ok(action.options.includes(result.seat));
   assert.equal(poll(seer).self.inspections.length, 1);
