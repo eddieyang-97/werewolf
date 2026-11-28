@@ -96,7 +96,7 @@ test('night and self-destruct actions stay behind the same disclosure for wolf a
   assert.equal(await selfDestruct(wolfPage).count(), 0);
 });
 
-test('reconnecting closes a private Witch prompt until the player shows actions again', { timeout: 30_000 }, async t => {
+test('a failed sync or brief offline event closes the private Witch prompt until actions are shown again', { timeout: 30_000 }, async t => {
   const { code, host, players, rooms, elapse, playerPage, url } = await game(t, {
     lineup: ['villager', 'witch', 'wolf', 'villager'],
   });
@@ -115,6 +115,7 @@ test('reconnecting closes a private Witch prompt until the player shows actions 
   hearCue(witchCue);
 
   const page = await playerPage(witch);
+  await page.clock.install();
   await page.goto(url);
   const neutralPrompt = page.getByText('点击「显示操作」查看当前操作', { exact: true });
   const witchAction = page.getByRole('button', { name: '女巫请睁眼', exact: true });
@@ -135,6 +136,30 @@ test('reconnecting closes a private Witch prompt until the player shows actions 
   await neutralPrompt.waitFor();
   assert.equal(await witchAction.count(), 0);
   assert.equal(await page.locator('dialog [data-form="match-choice"]').count(), 0);
+
+  await showActions(page).click();
+  await witchAction.click();
+  await target.waitFor();
+
+  // Freeze the interval after a successful sync so no request can fail while offline.
+  await syncResponse(page, () => true);
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 50)));
+  await page.evaluate(() => {
+    window.networkEvents = Object.fromEntries(['offline', 'online'].map(type => [type, new Promise(resolve => {
+      window.addEventListener(type, () => resolve(navigator.onLine), { once: true });
+    })]));
+  });
+  await page.context().setOffline(true);
+  assert.equal(await page.evaluate(() => window.networkEvents.offline), false);
+  assert.equal(await page.locator('dialog[open]').count(), 0);
+  assert.equal(await showActions(page).isVisible(), true);
+  const restored = syncResponse(page, () => true);
+  await page.context().setOffline(false);
+  assert.equal(await page.evaluate(() => window.networkEvents.online), true);
+  await page.clock.resume();
+  assert.equal((await restored).match.actions[0].action, 'witch');
+  await target.waitFor({ state: 'detached' });
+  assert.equal(await witchAction.count(), 0);
 
   await showActions(page).click();
   await witchAction.click();

@@ -1290,6 +1290,11 @@ dialog.addEventListener('close', () => {
   dialog.replaceChildren();
 });
 window.addEventListener('popstate', () => go(location.pathname, true));
+window.addEventListener('offline', () => {
+  if (!showingMatchActions) return;
+  hideMatchActions();
+  render();
+});
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
 document.addEventListener('visibilitychange', () => {
