@@ -70,6 +70,9 @@ test('night and self-destruct actions stay behind the same disclosure for wolf a
 
   const noKill = page => page.getByRole('button', { name: '不击杀', exact: true });
   const selfDestruct = page => page.getByRole('button', { name: '自爆', exact: true });
+  const nightPrompt = page => page.getByText('点击「显示操作」查看当前操作', { exact: true });
+  await nightPrompt(hostPage).waitFor();
+  await nightPrompt(wolfPage).waitFor();
   await showActions(wolfPage).waitFor();
   assert.equal(await noKill(wolfPage).count(), 0);
   assert.equal(await wolfPage.getByText('狼队同伴：3号', { exact: true }).count(), 0);
@@ -93,7 +96,57 @@ test('night and self-destruct actions stay behind the same disclosure for wolf a
   assert.equal(await selfDestruct(wolfPage).count(), 0);
 });
 
-test('exile ballot seats and abstention activate only while match actions are expanded', { timeout: 30_000 }, async t => {
+test('reconnecting closes a private Witch prompt until the player shows actions again', { timeout: 30_000 }, async t => {
+  const { code, host, players, rooms, elapse, playerPage, url } = await game(t, {
+    lineup: ['villager', 'witch', 'wolf', 'villager'],
+  });
+  const [, witch, wolf] = players;
+  const { room: { match: { nightCue } } } = rooms.action(code, host.token, host.guest.tab, {
+    id: randomUUID(), type: 'match-start', nightNarration: true,
+  });
+  const hearCue = seenNightCue => rooms.sync(code, host.token, host.guest.tab, { seenNightCue, nightCuePlaybackComplete: true });
+  assert.equal(nightCue.role, 'wolf');
+  hearCue(nightCue);
+  const { matchId, window } = rooms.sync(code, wolf.token, wolf.guest.tab).match;
+  rooms.action(code, wolf.token, wolf.guest.tab, { id: randomUUID(), type: 'match-choice', matchId, window, kind: 'night-action', choice: 4 });
+  elapse(nightChoiceDuration);
+  const witchCue = hearCue(nightCue).match.nightCue;
+  assert.equal(witchCue.role, 'witch');
+  hearCue(witchCue);
+
+  const page = await playerPage(witch);
+  await page.goto(url);
+  const neutralPrompt = page.getByText('点击「显示操作」查看当前操作', { exact: true });
+  const witchAction = page.getByRole('button', { name: '女巫请睁眼', exact: true });
+  const target = page.getByText('狼刀目标：4号', { exact: true });
+  const dialog = page.getByRole('dialog');
+  await neutralPrompt.waitFor();
+  assert.equal(await witchAction.count(), 0);
+  assert.equal(await page.locator('[data-night-action-clock]').count(), 0);
+  await showActions(page).click();
+  await witchAction.click();
+  await target.waitFor();
+
+  await page.route(`**/api/rooms/${code}/sync`, route => route.abort(), { times: 1 });
+  await page.getByText('正在重新连接…', { exact: true }).waitFor();
+  await dialog.waitFor({ state: 'hidden' });
+  await target.waitFor({ state: 'detached' });
+  await page.getByText('正在重新连接…', { exact: true }).waitFor({ state: 'hidden' });
+  await neutralPrompt.waitFor();
+  assert.equal(await witchAction.count(), 0);
+  assert.equal(await page.locator('dialog [data-form="match-choice"]').count(), 0);
+
+  await showActions(page).click();
+  await witchAction.click();
+  await target.waitFor();
+  await dialog.getByRole('radio', { name: '使用解药', exact: true }).check();
+  const accepted = page.waitForResponse(response => response.url().endsWith('/action'));
+  await dialog.getByRole('button', { name: '确认', exact: true }).click();
+  assert.equal((await accepted).status(), 200);
+  await dialog.waitFor({ state: 'hidden' });
+});
+
+test('exile actions stay behind the disclosure and only the host can publish the ballot', { timeout: 30_000 }, async t => {
   const { code, host, players, rooms, playerPage, url } = await game(t, {
     lineup: ['villager', 'wolf', 'villager', 'villager'], sheriffMode: 'none',
     customRules: { victoryMode: 'town', firstNightKnife: 'disabled' },
@@ -131,6 +184,22 @@ test('exile ballot seats and abstention activate only while match actions are ex
   await dialog.waitFor({ state: 'hidden' });
   assert.equal(await target.isDisabled(), true);
   assert.equal(await abstain.count(), 0);
+
+  play(host, 'vote', 2);
+  play(players[1], 'vote', 4);
+  assert.equal(play(players[3], 'vote', null).phase, 'exile-vote');
+  const reveal = page => page.getByRole('button', { name: '开票', exact: true });
+  assert.equal(await reveal(page).count(), 0);
+
+  const hostPage = await playerPage(host);
+  await hostPage.goto(url);
+  await showActions(hostPage).waitFor();
+  assert.equal(await reveal(hostPage).count(), 0);
+  await showActions(hostPage).click();
+  await reveal(hostPage).click();
+  await hostPage.getByText('放逐 PK 发言', { exact: true }).waitFor();
+  await page.getByText('放逐 PK 发言', { exact: true }).waitFor();
+  await page.getByText(/^PK：(?:2、4|4、2)号$/).waitFor();
 });
 
 test('the host finishes a delayed wake-up call before the full action window begins', { timeout: 30_000 }, async t => {

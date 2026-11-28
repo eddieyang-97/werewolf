@@ -279,7 +279,7 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal((await roomApi(base, code, host, 'resume', {}, 404)).code, 'ROOM_GONE');
   }, { postgres: true, persistent: true });
 
-  roomTest('a human player has time to see and interrupt the first bot runoff speech', async start => {
+  roomTest('a runoff with bot candidates waits for the host and can still be interrupted by a player', async start => {
     let now = Date.now();
     const players = Array.from({ length: 2 }, browser);
     const [host, wolf] = players;
@@ -303,7 +303,6 @@ describe('room HTTP', { concurrency: 4 }, () => {
       assert.ok(executeMatchChoice(room, guests[seat - 1], command(room.match, kind, choice), matchRules, now));
     play(2, 'night-action', 'confirm');
     play(1, 'publish-night');
-    while (room.match.phase === 'discussion') play(1, 'finish-speech');
     play(1, 'open-exile');
     play(2, 'vote', 3);
     play(3, 'vote', 4);
@@ -314,12 +313,18 @@ describe('room HTTP', { concurrency: 4 }, () => {
     const hostBallot = await sync(host);
     assert.equal((await sync(wolf)).phase, 'exile-vote');
     now += 100;
-    const opened = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    const readyToReveal = (await action(base, code, host, command(hostBallot, 'vote', 4))).room.match;
+    assert.equal(readyToReveal.phase, 'exile-vote');
+    assert.ok(readyToReveal.history.every(event => !event.ballot));
+    const opened = (await action(base, code, host, command(readyToReveal, 'reveal-exile-vote'))).room.match;
     assert.equal(opened.phase, 'exile-runoff-speech');
-    assert.ok([3, 4].includes(opened.speaker));
+    assert.equal(opened.speaker, null);
+    assert.deepEqual(opened.exileRunoffCandidates.toSorted((a, b) => a - b), [3, 4]);
+    assert.deepEqual(opened.actions.map(entry => entry.kind), ['open-exile']);
+    assert.equal((await action(base, code, wolf, command(opened, 'open-exile'), 409)).code, 'MATCH_ACTION');
 
     let seen;
-    for (const elapsed of [1_700, 1_800]) {
+    for (const elapsed of [1_700, 1_800, 6_000]) {
       now += elapsed;
       seen = await sync(wolf);
       assert.equal(seen.phase, 'exile-runoff-speech');
@@ -770,8 +775,23 @@ describe('room HTTP', { concurrency: 4 }, () => {
     assert.equal(ballot.voteProgress.expected, lineup.length);
     const lastSeat = seats.at(-1);
     for (const participant of participants.slice(0, -1)) await choose(participant, ballot, 'vote', lastSeat);
+    const { match: beforeLastVote } = await roomApi(base, code, host, 'sync');
+    assert.deepEqual(beforeLastVote.voteProgress.pending, [lastSeat]);
+    assert.ok(beforeLastVote.actions.some(entry => entry.kind === 'close-vote'));
+    const confirmedClose = { id: randomUUID(), type: 'match-choice',
+      matchId: beforeLastVote.matchId, window: beforeLastVote.window, kind: 'close-vote' };
     const { room: { match: afterVote } } = await choose(participants.at(-1), ballot, 'vote', null);
-    const published = afterVote.history.find(event => event.kind === 'exile-vote');
+    assert.equal(afterVote.phase, 'exile-vote');
+    assert.ok(afterVote.history.every(event => !event.ballot));
+    base = await start({ clock, matchRules });
+    const { match: readyToReveal } = await roomApi(base, code, host, 'resume');
+    assert.deepEqual(readyToReveal.voteProgress.pending, []);
+    assert.ok(readyToReveal.actions.some(entry => entry.kind === 'reveal-exile-vote'));
+    assert.equal((await action(base, code, participants.at(-1), confirmedClose, 409)).code, 'MATCH_ACTION');
+    const result = await action(base, code, host, confirmedClose);
+    assert.deepEqual(await action(base, code, host, confirmedClose), result);
+    const { room: { match: revealed } } = result;
+    const published = revealed.history.find(event => event.kind === 'exile-vote');
     assert.deepEqual(published.ballot.groups, [{ seat: lastSeat, count: lastSeat - 1, voters: seats.slice(0, -1) }]);
     assert.deepEqual(published.ballot.abstained, [lastSeat]);
     const abandoned = await action(base, code, host, { type: 'match-abandon', matchId: hostMatch.canAbandon });

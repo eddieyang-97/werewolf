@@ -42,10 +42,14 @@ export function advanceDeathFlow(match) {
   delete match.deathFlow;
   if (flow.then === 'discussion') beginDiscussion(match);
   else if (flow.then === 'speech') nextDiscussionSpeaker(match);
+  else if (flow.then === 'nomination') openNomination(match);
+  else if (flow.then === 'exile-vote') openExileVote(match);
   else if (flow.resumePhase === 'discussion' && playerAt(match, match.day.order[match.day.speakerIndex]).death) {
     nextDiscussionSpeaker(match);
+  } else if (flow.resumePhase === 'nomination' && match.sheriff === null) {
+    openExileVote(match);
   } else if (flow.resumePhase) {
-    changePhase(match, flow.resumePhase === 'nomination' && match.sheriff === null ? 'exile-locked' : flow.resumePhase);
+    changePhase(match, flow.resumePhase);
   } else if (flow.then === 'end-duel-day') {
     const pending = concludeDelayedDeaths(match, livingPlayers(match).filter(player => player.delayedDeath));
     for (const death of pending) addHistory(match, 'day', 'departed', { seat: death.seat });
@@ -189,18 +193,33 @@ export function advanceDiscussion(match) {
   }
 }
 
+function settleDiscussionDepartures(match, then) {
+  if (match.phase !== 'discussion') return false;
+  const pending = livingPlayers(match).filter(player => player.delayedDeath);
+  if (!pending.length) return false;
+  const deaths = concludeDelayedDeaths(match, pending);
+  for (const death of deaths) addHistory(match, 'day', 'departed', { seat: death.seat });
+  // An older server can resume at this checkpoint if rolled back during badge handling.
+  processDeaths(match, deaths, then, 'exile-open');
+  return true;
+}
+
 export function openNomination(match) {
-  changePhase(match, 'nomination');
+  if (settleDiscussionDepartures(match, 'nomination')) return;
+  if (match.sheriff === null) openExileVote(match);
+  else changePhase(match, 'nomination');
 }
 
 export function settleNomination(match, nominations) {
   match.day.nominations = nominations;
   addHistory(match, 'day', 'nomination', { seats: nominations });
   if (nominations.length > 1) beginExileRunoff(match, nominations);
-  else changePhase(match, 'exile-locked');
+  else openExileVote(match);
 }
 
-export function openExileVote(match, runoff = false) {
+export function openExileVote(match) {
+  if (settleDiscussionDepartures(match, 'exile-vote')) return;
+  const runoff = match.phase === 'exile-runoff-speech';
   const seats = livingPlayers(match).map(player => player.seat);
   const targets = runoff ? match.day.runoffTargets : seats;
   match.day.ballot = { voters: seats, targets, votes: {} };
@@ -210,15 +229,8 @@ export function openExileVote(match, runoff = false) {
 function beginExileRunoff(match, targets, fromVote = false) {
   match.day.runoffTargets = targets;
   match.day.runoffSpeakers = runoffOrder(match.day.order, targets);
-  match.day.runoffIndex = 0;
   match.day.runoffFromVote = fromVote;
   changePhase(match, 'exile-runoff-speech');
-}
-
-export function advanceRunoff(match) {
-  match.day.runoffIndex++;
-  if (match.day.runoffSpeakers[match.day.runoffIndex]) changePhase(match, 'exile-runoff-speech');
-  else openExileVote(match, true);
 }
 
 export function closeExileVote(match) {

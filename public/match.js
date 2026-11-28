@@ -24,8 +24,8 @@ const phaseTitles = {
 const labels = {
   'self-destruct': '自爆', 'open-election': '开始警长竞选', 'publish-night': '公布昨夜信息',
   candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪', duel: '骑士决斗',
-  badge: '交接警徽', direction: '选择发言方向', 'open-nomination': '开始警长归票', nominate: '选择归票对象',
-  'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
+  badge: '交接警徽', direction: '选择发言方向', nominate: '选择归票对象',
+  'open-exile': '发起放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
   'host-eliminate': '标记出局', 'host-transfer-badge': '移交警徽',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
@@ -38,6 +38,7 @@ const labels = {
 
 export function matchLabel(control) {
   if (control.kind === 'open-sheriff-vote') return '开始投票';
+  if (control.kind === 'reveal-exile-vote' || (control.kind === 'close-vote' && control.exile)) return '开票';
   if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }
@@ -111,7 +112,7 @@ function matchActionDetails(match, button, { connected, seatVote, host, nightVoi
 
 export function matchPanel(match, button, options) {
   const { connected, showingActions } = options;
-  const { phase, round, speaker, sheriff, timer, actions = [], voteProgress } = match;
+  const { phase, round, speaker, timer, voteProgress } = match;
   const { electionRoster } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
@@ -125,16 +126,17 @@ export function matchPanel(match, button, options) {
   return `<section class="match-panel" aria-label="当前对局">
     <h2>${finished ? '对局结果' : phase === 'night' ? `第${round}晚` : `第${round}天`}</h2>
     ${cue ? `<p class="night-call"><strong>${roles[cue.role].name}请睁眼</strong></p>` : ''}
-    ${publicInfo ? `<p>${publicInfo}</p>` : cue || (showingActions && actions.length) ? '' : '<p>请等待夜间操作完成</p>'}
+    ${publicInfo ? `<p>${publicInfo}</p>` : ''}
+    ${phase === 'night' && !showingActions ? '<p>点击「显示操作」查看当前操作</p>' : ''}
     ${match.forced ? '<p>房主判定结果</p>' : ''}
     ${speaker ? `<p>${speaker}号正在发言</p>` : ''}
     ${electionRoster ? `<p>警上：${seatList(electionRoster.candidates)}</p>
       <p>警下：${seatList(electionRoster.voters)}</p>
       <p>已退水：${seatList(electionRoster.withdrawn)}</p>` : ''}
+    ${match.exileRunoffCandidates?.length ? `<p>PK：${seatList(match.exileRunoffCandidates)}</p>` : ''}
     ${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
-    ${sheriff ? `<p>${sheriff}号持有警徽</p>` : ''}
     <button type="button" class="button secondary" data-action="toggle-match-actions" aria-expanded="${showingActions}"
       aria-controls="match-action-details"${connected ? '' : ' disabled'}>${showingActions ? '隐藏操作' : '显示操作'}</button>
     <div id="match-action-details" class="match-action-details"${showingActions ? '' : ' hidden'}>${
