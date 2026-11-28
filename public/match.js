@@ -24,8 +24,8 @@ const phaseTitles = {
 const labels = {
   'self-destruct': '自爆', 'open-election': '开始警长竞选', 'publish-night': '公布昨夜信息',
   candidacy: '选择是否上警', withdraw: '退水', 'finish-speech': '结束当前发言', shoot: '猎人开枪', duel: '骑士决斗',
-  badge: '交接警徽', direction: '选择发言方向', 'open-nomination': '开始警长归票', nominate: '选择归票对象',
-  'open-exile': '开始放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
+  badge: '交接警徽', direction: '选择发言方向', nominate: '选择归票对象',
+  'open-exile': '发起放逐投票', vote: '投票', 'close-vote': '查看投票结果', 'next-night': '进入天黑阶段', rematch: '再来一局',
   'start-timer': '开始倒计时',
   'host-eliminate': '标记出局', 'host-transfer-badge': '移交警徽',
   'thief-start': '选择起手身份', guard: '守卫请睁眼', knife: '狼人请睁眼', witch: '女巫请睁眼',
@@ -38,6 +38,7 @@ const labels = {
 
 export function matchLabel(control) {
   if (control.kind === 'open-sheriff-vote') return '开始投票';
+  if (control.kind === 'reveal-exile-vote' || (control.kind === 'close-vote' && control.exile)) return '开票';
   if (control.kind === 'shoot' && control.role === 'wolfKing') return '狼王开枪';
   return labels[control.action ?? control.kind];
 }
@@ -75,7 +76,7 @@ function seatList(seats) {
 }
 
 export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable } = {}) {
-  const { phase, round, speaker, sheriff, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
+  const { phase, round, speaker, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
   const { electionRoster } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
@@ -101,10 +102,10 @@ export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, s
     ${electionRoster ? `<p>警上：${seatList(electionRoster.candidates)}</p>
       <p>警下：${seatList(electionRoster.voters)}</p>
       <p>已退水：${seatList(electionRoster.withdrawn)}</p>` : ''}
+    ${match.exileRunoffCandidates?.length ? `<p>PK：${seatList(match.exileRunoffCandidates)}</p>` : ''}
     ${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
-    ${sheriff ? `<p>${sheriff}号持有警徽</p>` : ''}
     ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
     ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
     ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}

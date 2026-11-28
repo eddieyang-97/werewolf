@@ -7,7 +7,6 @@ export function publicSpeaker(match) {
   switch (match.phase) {
     case 'last-words': return match.deathFlow.current.death.seat;
     case 'discussion': return match.day.order[match.day.speakerIndex];
-    case 'exile-runoff-speech': return match.day.runoffSpeakers[match.day.runoffIndex];
     default: return null;
   }
 }
@@ -43,10 +42,11 @@ export function matchView(match, seat, now = Date.now()) {
     round: match.round,
     sheriff: match.sheriff,
     speaker: publicSpeaker(match),
-    timer: electionSpeechOpen(match) ? undefined : match.timer,
+    timer: electionSpeechOpen(match) || phase === 'exile-runoff-speech' ? undefined : match.timer,
     departed: match.players.filter(person => person.announced).map(person => person.seat),
     history: match.history,
   };
+  if (phase === 'exile-runoff-speech') result.exileRunoffCandidates = match.day.runoffSpeakers;
   if (player) {
     result.self = {
       inspections: player.privateEvents,
