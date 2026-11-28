@@ -152,6 +152,7 @@ img.seat-avatar { background: #f3f3f3; object-fit: cover; }
 .match-panel h2 { color: var(--green-text); }
 .match-panel p, .match-panel details { color: var(--muted); font-size: .87rem; }
 .match-panel .vote-instruction { color: #a62020; font-weight: 600; }
+.match-action-details:not([hidden]) { display: grid; justify-items: center; gap: 7px; }
 .match-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 7px; }
 .night-action { color: #a62020; border-color: #cfaaa8; background: var(--page); }
 .night-action:active { background: #f9eceb; }

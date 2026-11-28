@@ -1,7 +1,7 @@
 export const roles = {
   wolf: {
     name: '狼人', description: '狼人阵营。夜里和同伴商量刀谁，任一有刀权的狼人可提交本夜刀口。',
-    notes: ['白天有自爆机会时，可在对局操作里选择「自爆」。'],
+    notes: ['白天有自爆机会时，点「显示操作」后选择「自爆」。'],
   },
   wolfKing: {
     name: '狼王', art: 'wolf-king', description: '狼人阵营。与小狼共用狼刀。被放逐或被骑士决斗击杀后，如果对局继续，可以开枪带走一名玩家。',

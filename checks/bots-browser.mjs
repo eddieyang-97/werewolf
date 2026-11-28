@@ -65,17 +65,23 @@ test('a solo host can create a 16-seat room, manage bots, and reach the first sh
     await dialog.getByRole('button', { name: '开始游戏', exact: true }).click();
 
     // The host's randomly dealt role can require a private choice during night one.
+    const showActions = button('显示操作');
     const nightAction = page.locator('.match-actions .night-action');
     const election = button('开始警长竞选');
-    await nightAction.or(election).waitFor();
-    while (await nightAction.isVisible()) {
+    for (;;) {
+      await showActions.or(nightAction).or(election).first().waitFor();
+      if (await showActions.isVisible()) {
+        await showActions.click();
+        continue;
+      }
+      if (await election.isVisible()) break;
       await nightAction.click();
       await dialog.getByRole('radio').first().check();
       await dialog.getByRole('button', { name: '确认', exact: true }).click();
       await dialog.waitFor({ state: 'hidden' });
-      await nightAction.or(election).waitFor();
     }
     await election.click();
+    await showActions.click();
     await button('不上警').waitFor();
     assert.equal(await botSeats.count(), 15);
   } finally {

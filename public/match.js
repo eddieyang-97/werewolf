@@ -75,55 +75,72 @@ function seatList(seats) {
   return seats.length ? `${seats.join('、')}号` : '暂无';
 }
 
-export function matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable } = {}) {
-  const { phase, round, speaker, self = { inspections: [] }, timer, actions = [], voteProgress } = match;
+function matchActionDetails(match, button, { connected, seatVote, host, nightVoiceOn, speechAvailable }) {
+  const { actions = [], self = { inspections: [] } } = match;
+  const activeActions = seatVote ? actions.filter(action => action !== seatVote) : actions;
+  const controls = activeActions.map(entry => {
+    if (entry.kind === 'candidacy') return entry.options.map(choice => button(choiceLabel(choice, entry), 'match-send', {
+      value: matchCommand(match, entry.kind, choice), disabled: !connected,
+    })).join('');
+    const wolfRecognition = entry.action === 'wolf-recognition';
+    return button(matchLabel(entry), wolfRecognition ? 'match-send' : 'match-control', {
+      value: matchCommand(match, entry.kind, wolfRecognition ? entry.options[0] : undefined),
+      disabled: !connected, variant: entry.kind === 'night-action' ? 'night-action' : 'primary',
+    });
+  });
+  if (seatVote?.options.includes(null)) {
+    controls.unshift(button('弃票', 'confirm-vote', { value: matchCommand(match, 'vote', null), disabled: !connected }));
+  }
+  if (host && match.nightNarration && speechAvailable) {
+    controls.push(button(nightVoiceOn ? '关闭夜间播报' : '开启夜间播报', 'toggle-night-voice', { variant: 'quiet', disabled: !connected }));
+  }
+  if (host) controls.push(button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }));
+
+  const privateResults = self.inspections.map(result => `<li>第${result.round}晚 · ${result.seat}号 · ${
+    result.claws ? (result.claws === 2 ? '双爪' : '单爪') : result.role ? roles[result.role].name : result.team === 'wolves' ? '狼人' : '好人'
+  }</li>`).join('');
+  return `
+    ${self.teammates?.length ? `<p>狼队同伴：${self.teammates.join('、')}号</p>` : ''}
+    ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
+    ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
+    ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}
+    ${actions.some(action => action.nightTimer) ? '<p data-night-action-clock></p>' : ''}
+    ${seatVote ? '<p class="vote-instruction">请点击可投票的座位</p>' : ''}
+    ${controls.length ? `<div class="match-actions">${controls.join('')}</div>` : seatVote ? '' : '<p>暂无可用操作</p>'}
+    ${privateResults ? `<details><summary>我的查验记录</summary><ul>${privateResults}</ul></details>` : ''}`;
+}
+
+export function matchPanel(match, button, options) {
+  const { connected, showingActions } = options;
+  const { phase, round, speaker, timer, voteProgress } = match;
   const { electionRoster } = match;
   const finished = phase === 'finished';
   const tally = voteProgress ? `<p>已投 ${voteProgress.received} / ${voteProgress.expected}</p>` : '';
-  const nightInfo = self.teammates?.length ? `<p>狼队同伴：${self.teammates.join('、')}号</p>` : '';
   const endings = { wolves: '狼人胜利', village: '好人胜利', abandoned: '房主已结束本局' };
   const publicInfo = phaseTitles[phase] ?? (finished ? endings[match.winner] : null);
   const cards = (match.roster ?? []).map(({ seat, role, extra, side }) => `<li>${seat}号 · ${roles[role].name}${extra ? `（${extra.map(id => roles[id].name).join('、')}）` : ''}${side === match.winner ? ' ✓' : ''}</li>`).join('');
   const nightResult = match.history.findLast(event => event.kind === 'night-result' && event.round === round);
   const results = phase !== 'night' && nightResult ? `<p>${nightResult.seats.length ? `昨夜出局：${nightResult.seats.join('、')}号` : '昨夜平安，无人出局'}</p>` : '';
   const duel = match.history.findLast(event => event.kind === 'duel' && event.round === round);
-  const privateResults = self.inspections.map(result => `<li>第${result.round}晚 · ${result.seat}号 · ${
-    result.claws ? (result.claws === 2 ? '双爪' : '单爪') : result.role ? roles[result.role].name : result.team === 'wolves' ? '狼人' : '好人'
-  }</li>`).join('');
-  const activeActions = seatVote ? actions.filter(action => action !== seatVote) : actions;
   const cue = match.nightCue;
   return `<section class="match-panel" aria-label="当前对局">
     <h2>${finished ? '对局结果' : phase === 'night' ? `第${round}晚` : `第${round}天`}</h2>
-    ${match.nightNarration && (cue || speechAvailable) ? `<p class="night-call">${cue ? `<strong>${roles[cue.role].name}请睁眼</strong>` : ''}
-      ${speechAvailable ? button(nightVoiceOn ? '关闭夜间播报' : '开启夜间播报', 'toggle-night-voice', { variant: 'quiet', disabled: !connected }) : ''}</p>` : ''}
-    ${publicInfo ? `<p>${publicInfo}</p>` : actions.length || cue ? '' : '<p>请等待夜间操作完成</p>'}
+    ${cue ? `<p class="night-call"><strong>${roles[cue.role].name}请睁眼</strong></p>` : ''}
+    ${publicInfo ? `<p>${publicInfo}</p>` : ''}
+    ${phase === 'night' && !showingActions ? '<p>点击「显示操作」查看当前操作</p>' : ''}
     ${match.forced ? '<p>房主判定结果</p>' : ''}
     ${speaker ? `<p>${speaker}号正在发言</p>` : ''}
     ${electionRoster ? `<p>警上：${seatList(electionRoster.candidates)}</p>
       <p>警下：${seatList(electionRoster.voters)}</p>
       <p>已退水：${seatList(electionRoster.withdrawn)}</p>` : ''}
     ${match.exileRunoffCandidates?.length ? `<p>PK：${seatList(match.exileRunoffCandidates)}</p>` : ''}
-    ${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}${nightInfo}
+    ${results}${duel ? `<p>${historyText(duel)}</p>` : ''}${tally}
     ${timer ? (timer.deadline ? `<time data-match-deadline="${timer.deadline}">${timerText(timer.deadline - Date.now())}</time>`
       : `<p>${timerText(timer.remaining)}${timer.remaining ? '（暂停）' : ''}</p>`) : ''}
-    ${self.disguise ? `<p>当前身份：${self.disguise === 'power' ? '神牌' : '村民牌'}</p>` : ''}
-    ${self.copied ? `<p>已学习：${roles[self.copied].name}</p>` : ''}
-    ${self.model ? `<p>你的榜样：${self.model}号</p>` : ''}
-    ${actions.some(action => action.nightTimer) ? '<p data-night-action-clock></p>' : ''}
-    ${seatVote ? '<p class="vote-instruction">请点击可投票的座位</p>' : ''}
-    <div class="match-actions">${seatVote?.options.includes(null) ? button('弃票', 'confirm-vote', {
-      value: matchCommand(match, 'vote', null), disabled: !connected,
-    }) : ''}${activeActions.map(entry => {
-      if (entry.kind === 'candidacy') return entry.options.map(choice => button(choiceLabel(choice, entry), 'match-send', {
-        value: matchCommand(match, entry.kind, choice), disabled: !connected,
-      })).join('');
-      const wolfRecognition = entry.action === 'wolf-recognition';
-      return button(matchLabel(entry), wolfRecognition ? 'match-send' : 'match-control', {
-        value: matchCommand(match, entry.kind, wolfRecognition ? entry.options[0] : undefined),
-        disabled: !connected, variant: entry.kind === 'night-action' ? 'night-action' : 'primary',
-      });
-    }).join('')}</div>
-    ${privateResults ? `<details><summary>我的查验记录</summary><ul>${privateResults}</ul></details>` : ''}
+    <button type="button" class="button secondary" data-action="toggle-match-actions" aria-expanded="${showingActions}"
+      aria-controls="match-action-details"${connected ? '' : ' disabled'}>${showingActions ? '隐藏操作' : '显示操作'}</button>
+    <div id="match-action-details" class="match-action-details"${showingActions ? '' : ' hidden'}>${
+      showingActions ? matchActionDetails(match, button, options) : ''}</div>
     ${cards ? `<ul class="match-roster">${cards}</ul>` : ''}
     ${button('对局详情', 'match-history', { variant: 'quiet' })}
   </section>`;

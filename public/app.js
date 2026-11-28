@@ -50,6 +50,7 @@ let matchClock;
 let nightActionClock;
 let roomError = '';
 let showingHistory = false;
+let showingMatchActions = false;
 let voteClosure;
 let nightVoiceOn = false;
 let seenNightCue;
@@ -378,7 +379,7 @@ function roomScreen() {
     return `<h1>房间 ${code}</h1><p class="board-name">${boardName}</p>${profileForm('join-room', '加入房间', null, joinDraft)}`;
   }
   const { self, seats, state, match } = lobby;
-  const seatVote = exileVote(match);
+  const seatVote = showingMatchActions ? exileVote(match) : undefined;
   const seatedCount = seats.filter(Boolean).length;
   const readyCount = seats.filter(guest => guest?.acknowledged).length;
   const showReady = state === 'dealt' && self.seat !== null && !self.acknowledged;
@@ -395,7 +396,7 @@ function roomScreen() {
     <div class="room-tools">
       ${button('用法简介', 'help', { variant: 'quiet' })}
       ${self.spectator ? '' : button('编辑资料', 'profile', { variant: 'quiet', disabled: !connected })}
-      ${self.host ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
+      ${self.host && !match ? button('房主操作', 'manage', { variant: 'quiet', disabled: !connected }) : ''}
       ${button('本局配置', 'config', { variant: 'quiet' })}
     </div>
     <section class="room-overview">
@@ -418,7 +419,9 @@ function roomScreen() {
     ${takenOver ? `<div class="connection" role="status">另一个页面正在使用此房间会话。${button('在此页继续', 'take-control', { variant: 'secondary' })}</div>` : ''}
     ${!connected && !takenOver ? '<p class="connection" role="status">正在重新连接…</p>' : ''}
     ${self.spectator ? `<div class="phase-panel" role="status">${replacementStatus}</div>` : ''}
-    ${match ? matchPanel(match, button, connected, seatVote, { nightVoiceOn, speechAvailable }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
+    ${match ? matchPanel(match, button, {
+      connected, seatVote, showingActions: showingMatchActions, host: self.host, nightVoiceOn, speechAvailable,
+    }) : `<div class="phase-panel">${!self.spectator && phaseInstruction ? `<strong>${phaseInstruction}</strong>` : ''}<span>${phaseSummary}</span></div>`}
     <section class="seats" aria-label="${seats.length} 个座位">${seats.map((guest, index) => seatTile(guest, index, seatVote)).join('')}</section>
     ${lobby.waiting.length ? `<p class="waiting">未入座 · ${lobby.waiting.map(guest => escape(guest.name)).join('、')}</p>` : ''}
     ${lobby.spectatorCount ? `<p class="waiting">观战 · ${lobby.spectatorCount} 人</p>` : ''}`;
@@ -448,9 +451,15 @@ function render() {
   }
 }
 
-function showDialog(title, body, appearance = '') {
+function hideMatchActions() {
+  showingMatchActions = false;
+  if (dialog.open && dialog.hasAttribute('data-match-action')) dialog.close();
+}
+
+function showDialog(title, body, appearance = '', { matchAction = false } = {}) {
   voteClosure = undefined;
   dialog.className = appearance;
+  dialog.toggleAttribute('data-match-action', matchAction);
   const hasFooter = ['identity-dialog', 'ballot-dialog', 'settings-dialog', 'prompt-dialog', 'host-dialog', 'force-end-dialog'].includes(appearance);
   dialog.innerHTML = `<div class="dialog-title"><h2 id="dialog-title">${escape(title)}</h2>${hasFooter ? '' : button('关闭', 'close', { variant: 'quiet' })}</div>${body}`;
   if (appearance === 'prompt-dialog') dialog.setAttribute('aria-describedby', 'dialog-description');
@@ -471,13 +480,13 @@ function showRoomSetting(key) {
   </form>`, 'settings-dialog');
 }
 
-function confirm(title, body, action, label, value) {
-  showDialog(title, `<p>${escape(body)}</p><div class="dialog-actions">${button('取消', 'close', { variant: 'secondary' })}${button(label, action, { value })}</div>`);
+function confirm(title, body, action, label, value, options) {
+  showDialog(title, `<p>${escape(body)}</p><div class="dialog-actions">${button('取消', 'close', { variant: 'secondary' })}${button(label, action, { value })}</div>`, '', options);
 }
 
-function confirmPrompt(question, action, value, { title = '请确认', cancelLabel = '取消', acceptLabel = '确定' } = {}) {
+function confirmPrompt(question, action, value, { title = '请确认', cancelLabel = '取消', acceptLabel = '确定', matchAction = false } = {}) {
   showDialog(title, `<p id="dialog-description">${escape(question)}</p>
-    <div class="dialog-actions">${button(cancelLabel, 'close', { variant: 'confirm-cancel' })}${button(acceptLabel, action, { variant: 'confirm-accept', value })}</div>`, 'prompt-dialog');
+    <div class="dialog-actions">${button(cancelLabel, 'close', { variant: 'confirm-cancel' })}${button(acceptLabel, action, { variant: 'confirm-accept', value })}</div>`, 'prompt-dialog', { matchAction });
 }
 
 function pendingVoteClosure({ matchId, window }) {
@@ -497,8 +506,8 @@ function showVoteClosure(command, final = false) {
   const pending = pendingVoteClosure(ballot);
   if (!pending) return dialog.close();
   confirmPrompt(voteClosureMessage(pending, final), final ? 'match-send' : 'confirm-close-vote', command, final
-    ? { title: '确认提前结束投票？', acceptLabel: '确认结束' }
-    : { title: '还有玩家未投票', cancelLabel: '再等一会', acceptLabel: '提前结束' });
+    ? { title: '确认提前结束投票？', acceptLabel: '确认结束', matchAction: true }
+    : { title: '还有玩家未投票', cancelLabel: '再等一会', acceptLabel: '提前结束', matchAction: true });
   const description = dialog.querySelector('#dialog-description');
   description.setAttribute('aria-live', 'polite');
   voteClosure = { ballot, final, description };
@@ -513,7 +522,7 @@ function refreshVoteClosure() {
   if (description.textContent !== text) description.textContent = text;
 }
 
-function showTargetPicker(title, notice, form, targets, command) {
+function showTargetPicker(title, notice, form, targets, { command, matchAction = false } = {}) {
   const options = targets.map(({ value, label }) => `<option value="${escape(value)}">${escape(label)}</option>`).join('');
   showDialog(title, `<form class="target-picker" data-form="${form}">
     ${command ? `<input type="hidden" name="command" value="${escape(command)}">` : ''}
@@ -521,12 +530,12 @@ function showTargetPicker(title, notice, form, targets, command) {
     <label class="target-picker-field">${form === 'add-bot' ? '选择空座位' : '选择目标玩家'}<select name="choice" required>
       <option value="" selected disabled>请选择座位</option>${options}</select></label>
     <div class="dialog-actions">${button('取消', 'close', { variant: 'confirm-cancel' })}<button type="submit" class="button confirm-accept">确定</button></div>
-  </form>`, 'prompt-dialog');
+  </form>`, 'prompt-dialog', { matchAction });
 }
 
 function showHostDialog(title, content) {
   showDialog(title, `<div class="host-dialog-content">${content}</div>
-    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'host-dialog');
+    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'host-dialog', { matchAction: Boolean(lobby.match) });
 }
 
 function hostMatchButton(match, kind) {
@@ -541,7 +550,7 @@ function showForceEnd(matchId) {
   if (lobby.match?.canAbandon !== matchId) return;
   showDialog('强制结束', `<div class="force-end-options">${Object.entries(forceEndOptions).map(([winner, label]) =>
     button(label, 'confirm-force-end', { variant: 'quiet', value: JSON.stringify({ matchId, winner }) })).join('')}</div>
-    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'force-end-dialog');
+    ${button('取消', 'close', { variant: 'host-dialog-close' })}`, 'force-end-dialog', { matchAction: true });
 }
 
 async function request(path, body, token, options = {}) {
@@ -574,6 +583,10 @@ function roomRequest(operation, body = {}, options = {}) {
 function applyLobby(next, requestStartedAt) {
   syncNightActionClock(next.match, requestStartedAt);
   const changed = !connected || JSON.stringify(next) !== JSON.stringify(lobby);
+  if (next.match?.phase !== lobby?.match?.phase || next.match?.round !== lobby?.match?.round
+      || next.self.seat !== lobby?.self.seat || next.self.host !== lobby?.self.host) {
+    hideMatchActions();
+  }
   if (lobby && next.self.spectator !== lobby.self.spectator) {
     dialog.close();
     message(next.self.spectator ? '座位已由替补接手，你已进入观战。' : `你已替补进入 ${next.self.seat} 号座。`);
@@ -598,6 +611,7 @@ function applyLobby(next, requestStartedAt) {
 }
 
 function handleRoomError(error) {
+  hideMatchActions();
   interruptNightVoice();
   if (error.code === 'TAKEN_OVER') {
     nightVoiceOn = false;
@@ -697,6 +711,7 @@ async function go(path, replace = false) {
   resumable = false;
   takenOver = false;
   showingHistory = false;
+  showingMatchActions = false;
   waiting = false;
   const match = /^\/room\/([A-Z0-9]{6})\/?$/.exec(path);
   if (match && codePattern.test(match[1])) {
@@ -948,7 +963,7 @@ function openMatchControl(command) {
       'host-transfer-badge': '所选玩家将接任警长并获得警徽权限。',
     }[hostControl.kind];
     const targets = hostControl.options.map(seat => ({ value: seat, label: choiceLabel(seat, hostControl, lobby.seats) }));
-    return showTargetPicker(matchLabel(hostControl), notice, 'match-choice', targets, command);
+    return showTargetPicker(matchLabel(hostControl), notice, 'match-choice', targets, { command, matchAction: true });
   }
   const control = actions.find(entry => entry.kind === requested.kind);
   if (!control) return;
@@ -968,14 +983,14 @@ function openMatchControl(command) {
       <input type="hidden" name="command" value="${escape(command)}">${gun}${knife}${duel}${timed}${swap ? '<p>选择两个号码进行交换，或留空跳过。</p>' : ''}<div class="match-options">${options}</div>
       ${swap ? '<p class="choice-error" role="alert"></p>' : ''}
       <button type="submit" class="button primary">确认</button>
-    </form>`);
+    </form>`, '', { matchAction: true });
     return refreshNightAction();
   }
   const warnings = {
     'self-destruct': '自爆后你将出局。', 'publish-night': '向所有玩家公布昨夜信息？',
     rematch: '返回准备阶段，在相同房间重新发牌？',
   };
-  if (warnings[control.kind]) return confirm(label, warnings[control.kind], 'match-send', '确认', command);
+  if (warnings[control.kind]) return confirm(label, warnings[control.kind], 'match-send', '确认', command, { matchAction: true });
   return action('match-choice', JSON.parse(command));
 }
 
@@ -991,7 +1006,7 @@ function showHelp(tabName = 'basic') {
     .map(step => nightNames[step] ?? roles[step].name).join(' → ');
   const election = (lobby?.sheriffMode ?? info?.sheriffMode) === 'none' ? '' : '警长竞选、';
   const customNoKnife = (lobby?.customRules ?? info?.customRules)?.firstNightKnife === 'disabled';
-  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，任意一名狼队成员可点击「不击杀」确认。</p>'
+  const firstNightNote = customNoKnife ? '<p>首夜狼队相认，任意一名狼队成员可在「显示操作」中点击「不击杀」确认。</p>'
     : boardId === 'thief' ? '<p>首夜跳过普通狼刀。</p>' : '';
   const pages = {
     basic: `<p>${selected.name} · ${selected.preview.length} 人</p><p>每位玩家使用自己的手机入座。发言和讨论可当面进行，或使用你们自己的语音通话。</p>`,
@@ -1153,6 +1168,13 @@ async function click(event) {
       nightVoiceOn = narrate && nightVoice.prime();
       return action('match-start', narrate ? { nightNarration: true } : {});
     }
+    case 'toggle-match-actions': {
+      if (showingMatchActions) hideMatchActions();
+      else showingMatchActions = true;
+      render();
+      root.querySelector('[data-action="toggle-match-actions"]').focus({ preventScroll: true });
+      return;
+    }
     case 'toggle-night-voice': {
       if (!connected || !lobby?.self.host || !lobby.match?.nightNarration || !speechAvailable) return;
       if (nightVoiceOn) {
@@ -1177,10 +1199,11 @@ async function click(event) {
       const { matchId, window, choice } = JSON.parse(value);
       if (!ballot?.options.includes(choice) || matchId !== match.matchId || window !== match.window) return;
       const question = choice === null ? '确认弃票？' : `投给 ${choiceLabel(choice, ballot, lobby.seats)}？`;
-      return confirmPrompt(question, 'match-send', value);
+      return confirmPrompt(question, 'match-send', value, { matchAction: true });
     }
     case 'match-send': return action('match-choice', JSON.parse(value));
     case 'match-history':
+      hideMatchActions();
       showingHistory = true;
       return render();
     case 'vote-detail': {
@@ -1217,14 +1240,14 @@ async function click(event) {
       const targets = lobby.seats.filter(guest => guest && !guest.bot && !guest.host && guest.connected)
         .map(({ id, seat, name }) => ({ value: id, label: `${seat}号 · ${name}` }));
       if (!targets.length) return showHostDialog('转交房主', '<p>目前没有可接任的玩家。</p>');
-      return showTargetPicker('转交房主', '所选玩家将接任房主。', 'host-transfer', targets);
+      return showTargetPicker('转交房主', '所选玩家将接任房主。', 'host-transfer', targets, { matchAction: Boolean(lobby.match) });
     }
     case 'force-end': return showForceEnd(value);
     case 'confirm-force-end': {
       const { winner, matchId } = JSON.parse(value);
       if (!Object.hasOwn(forceEndOptions, winner) || lobby.match?.canAbandon !== matchId) return;
       const question = winner === 'abandoned' ? '不判胜，结束本局？' : `结束本局并判定${forceEndOptions[winner]}？`;
-      return confirmPrompt(question, 'abandon-match', value);
+      return confirmPrompt(question, 'abandon-match', value, { matchAction: true });
     }
     case 'abandon-match': return action('match-abandon', JSON.parse(value));
     case 'confirm-remove': {
@@ -1267,6 +1290,11 @@ dialog.addEventListener('close', () => {
   dialog.replaceChildren();
 });
 window.addEventListener('popstate', () => go(location.pathname, true));
+window.addEventListener('offline', () => {
+  if (!showingMatchActions) return;
+  hideMatchActions();
+  render();
+});
 window.addEventListener('online', () => schedulePoll(0));
 window.addEventListener('pagehide', leaveConnection);
 document.addEventListener('visibilitychange', () => {
